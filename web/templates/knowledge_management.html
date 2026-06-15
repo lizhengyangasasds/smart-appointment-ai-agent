@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库管理 - 智能预约系统</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 20px; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            padding: 30px;
+            color: white;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+            animation: shimmer 3s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+        }
+        
+        .header h2 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            margin-bottom: 30px;
+            background: rgba(255,255,255,0.8);
+            border-radius: 15px;
+            padding: 5px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+        
+        .nav-tab {
+            flex: 1;
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            border-radius: 10px;
+            margin: 0 2px;
+            font-size: 16px;
+            font-weight: 500;
+            color: #666;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-tab.active {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+        }
+        
+        .nav-tab:hover:not(.active) {
+            background: rgba(79, 172, 254, 0.1);
+            color: #4facfe;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .search-section {
+            background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(248,250,252,0.9));
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+        
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid rgba(79, 172, 254, 0.2);
+            border-radius: 10px;
+            box-sizing: border-box;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            background: rgba(255,255,255,0.9);
+        }
+        
+        .form-control:focus {
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+            transform: translateY(-1px);
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-right: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            transition: all 0.3s ease;
+            transform: translate(-50%, -50%);
+        }
+        
+        .btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            box-shadow: 0 8px 25px rgba(79, 172, 254, 0.3);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(79, 172, 254, 0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            box-shadow: 0 8px 25px rgba(56, 239, 125, 0.3);
+        }
+        
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(56, 239, 125, 0.4);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            box-shadow: 0 8px 25px rgba(245, 87, 108, 0.3);
+        }
+        
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(245, 87, 108, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #9c9c9c 100%);
+            color: white;
+            box-shadow: 0 8px 25px rgba(108, 117, 125, 0.3);
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(108, 117, 125, 0.4);
+        }
+        
+        .knowledge-list {
+            background: rgba(255,255,255,0.9);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        
+        .knowledge-item {
+            padding: 20px;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .knowledge-item:hover {
+            background: rgba(79, 172, 254, 0.05);
+            transform: translateX(5px);
+        }
+        
+        .knowledge-item:last-child {
+            border-bottom: none;
+        }
+        
+        .knowledge-content {
+            font-size: 16px;
+            margin-bottom: 12px;
+            line-height: 1.6;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .knowledge-meta {
+            font-size: 13px;
+            color: #666;
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+        
+        .knowledge-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .search-result {
+            background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(33, 150, 243, 0.05));
+            border-left: 4px solid #2196f3;
+            margin-bottom: 15px;
+            border-radius: 0 10px 10px 0;
+        }
+        
+        .score-badge {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+            box-shadow: 0 4px 15px rgba(56, 239, 125, 0.3);
+        }
+        
+        .category-badge {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        }
+        
+        .keywords-tag {
+            background: rgba(255,255,255,0.8);
+            border: 2px solid rgba(79, 172, 254, 0.2);
+            padding: 3px 8px;
+            border-radius: 8px;
+            font-size: 11px;
+            margin-right: 8px;
+            margin-bottom: 5px;
+            color: #666;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+        
+        .keywords-tag:hover {
+            border-color: #4facfe;
+            background: rgba(79, 172, 254, 0.1);
+            transform: translateY(-1px);
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 20px;
+            width: 80%;
+            max-width: 600px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            animation: modalSlide 0.3s ease;
+        }
+        
+        @keyframes modalSlide {
+            from { opacity: 0; transform: translateY(-50px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .close {
+            color: #999;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+        }
+        
+        .close:hover {
+            color: #f5576c;
+            background: rgba(245, 87, 108, 0.1);
+            transform: rotate(90deg);
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+        }
+        
+        .stat-number {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        
+        .stat-label {
+            font-size: 16px;
+            opacity: 0.9;
+            font-weight: 500;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #4facfe;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .alert {
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            border: none;
+            font-weight: 500;
+        }
+        
+        .alert-success {
+            background: linear-gradient(135deg, rgba(17, 153, 142, 0.1), rgba(56, 239, 125, 0.1));
+            border-left: 4px solid #11998e;
+            color: #155724;
+        }
+        
+        .alert-error {
+            background: linear-gradient(135deg, rgba(240, 147, 251, 0.1), rgba(245, 87, 108, 0.1));
+            border-left: 4px solid #f093fb;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2><i class="fas fa-brain"></i> 知识库管理系统</h2>
+            <p>管理推拿房知识库，测试智能检索功能</p>
+        </div>
+        
+        <div class="content">
+            <div class="nav-tabs">
+                <button class="nav-tab active" onclick="showTab('overview')">📊 概览</button>
+                <button class="nav-tab" onclick="showTab('search')">🔍 搜索测试</button>
+                <button class="nav-tab" onclick="showTab('manage')">📝 知识管理</button>
+                <button class="nav-tab" onclick="showTab('add')">➕ 添加知识</button>
+            </div>
+        
+        <!-- 概览标签页 -->
+        <div id="overview" class="tab-content active">
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalCount">-</div>
+                    <div class="stat-label">总知识条数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="categoryCount">-</div>
+                    <div class="stat-label">知识分类数</div>
+                </div>
+            </div>
+            
+            <h3>📂 按分类浏览</h3>
+            <div id="categoryOverview"></div>
+        </div>
+        
+        <!-- 搜索测试标签页 -->
+        <div id="search" class="tab-content">
+            <div class="search-section">
+                <h3>🔍 智能搜索测试</h3>
+                <div class="form-group">
+                    <label for="searchQuery">搜索查询：</label>
+                    <input type="text" id="searchQuery" class="form-control" placeholder="输入搜索内容，如：营业时间、价格、技师等">
+                </div>
+                <div style="display: flex; gap: 15px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="searchTopK">返回结果数：</label>
+                        <select id="searchTopK" class="form-control">
+                            <option value="3">3条</option>
+                            <option value="5" selected>5条</option>
+                            <option value="10">10条</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label for="searchCategory">分类过滤：</label>
+                        <select id="searchCategory" class="form-control">
+                            <option value="">全部分类</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="performSearch()">🔍 搜索</button>
+                <button class="btn btn-secondary" onclick="clearSearchResults()">🗑️ 清空结果</button>
+            </div>
+            
+            <div id="searchResults"></div>
+        </div>
+        
+        <!-- 知识管理标签页 -->
+        <div id="manage" class="tab-content">
+            <h3>📝 所有知识</h3>
+            <div id="knowledgeList" class="loading">加载中...</div>
+        </div>
+        
+        <!-- 添加知识标签页 -->
+        <div id="add" class="tab-content">
+            <div class="search-section">
+                <h3>➕ 添加新知识</h3>
+                <div id="addAlert"></div>
+                <form id="addKnowledgeForm">
+                    <div class="form-group">
+                        <label for="newContent">知识内容：</label>
+                        <textarea id="newContent" class="form-control" rows="4" placeholder="输入知识内容"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="newCategory">分类：</label>
+                        <input type="text" id="newCategory" class="form-control" placeholder="如：营业时间、服务项目等">
+                    </div>
+                    <div class="form-group">
+                        <label for="newKeywords">关键词（用逗号分隔）：</label>
+                        <input type="text" id="newKeywords" class="form-control" placeholder="如：营业时间,开门,关门,几点">
+                    </div>
+                    <button type="submit" class="btn btn-success">✅ 添加知识</button>
+                    <button type="button" class="btn btn-secondary" onclick="clearAddForm()">🗑️ 清空表单</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 编辑模态框 -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditModal()">&times;</span>
+            <h3>✏️ 编辑知识</h3>
+            <div id="editAlert"></div>
+            <form id="editKnowledgeForm">
+                <input type="hidden" id="editId">
+                <div class="form-group">
+                    <label for="editContent">知识内容：</label>
+                    <textarea id="editContent" class="form-control" rows="4"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="editCategory">分类：</label>
+                    <input type="text" id="editCategory" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="editKeywords">关键词（用逗号分隔）：</label>
+                    <input type="text" id="editKeywords" class="form-control">
+                </div>
+                <button type="submit" class="btn btn-success">💾 保存更改</button>
+                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">❌ 取消</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        let knowledgeData = [];
+        let categories = [];
+        
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadKnowledgeData();
+            
+            // 绑定表单提交事件
+            document.getElementById('addKnowledgeForm').addEventListener('submit', handleAddKnowledge);
+            document.getElementById('editKnowledgeForm').addEventListener('submit', handleEditKnowledge);
+        });
+        
+        // 加载知识库数据
+        async function loadKnowledgeData() {
+            try {
+                const response = await fetch('/api/knowledge');
+                const data = await response.json();
+                
+                knowledgeData = data.documents;
+                categories = data.categories;
+                
+                updateStats(data);
+                renderOverview();
+                renderKnowledgeList();
+                updateCategorySelects();
+                
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                showAlert('加载数据失败', 'error');
+            }
+        }
+        
+        // 更新统计信息
+        function updateStats(data) {
+            document.getElementById('totalCount').textContent = data.total_count;
+            document.getElementById('categoryCount').textContent = data.categories.length;
+        }
+        
+        // 渲染概览页面
+        function renderOverview() {
+            const overview = document.getElementById('categoryOverview');
+            
+            // 按分类分组
+            const categoryGroups = {};
+            knowledgeData.forEach(doc => {
+                const category = doc.category || '未分类';
+                if (!categoryGroups[category]) {
+                    categoryGroups[category] = [];
+                }
+                categoryGroups[category].push(doc);
+            });
+            
+            let html = '';
+            Object.entries(categoryGroups).forEach(([category, docs]) => {
+                html += `
+                    <div class="knowledge-list" style="margin-bottom: 20px;">
+                        <div style="background: #f8f9fa; padding: 15px; font-weight: bold; font-size: 16px;">
+                            📁 ${category} (${docs.length}条)
+                        </div>
+                        ${docs.map(doc => `
+                            <div class="knowledge-item">
+                                <div class="knowledge-content">${doc.content}</div>
+                                <div class="knowledge-meta">
+                                    <span>ID: ${doc.id}</span>
+                                    <span>更新: ${new Date(doc.updated_at).toLocaleString()}</span>
+                                </div>
+                                ${doc.keywords && doc.keywords.length > 0 ? `
+                                    <div style="margin-top: 8px;">
+                                        ${doc.keywords.map(keyword => `<span class="keywords-tag">${keyword}</span>`).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            });
+            
+            overview.innerHTML = html;
+        }
+        
+        // 渲染知识列表
+        function renderKnowledgeList() {
+            const list = document.getElementById('knowledgeList');
+            
+            if (knowledgeData.length === 0) {
+                list.innerHTML = '<div class="loading">暂无知识数据</div>';
+                return;
+            }
+            
+            const html = knowledgeData.map(doc => `
+                <div class="knowledge-item">
+                    <div class="knowledge-content">${doc.content}</div>
+                    <div class="knowledge-meta">
+                        <span>ID: ${doc.id}</span>
+                        <span class="category-badge">${doc.category || '未分类'}</span>
+                        <span>创建: ${new Date(doc.created_at).toLocaleString()}</span>
+                        <span>更新: ${new Date(doc.updated_at).toLocaleString()}</span>
+                    </div>
+                    ${doc.keywords && doc.keywords.length > 0 ? `
+                        <div style="margin-top: 8px;">
+                            ${doc.keywords.map(keyword => `<span class="keywords-tag">${keyword}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                    <div class="knowledge-actions">
+                        <button class="btn btn-primary" onclick="editKnowledge(${doc.id})">✏️ 编辑</button>
+                        <button class="btn btn-danger" onclick="deleteKnowledge(${doc.id})">🗑️ 删除</button>
+                    </div>
+                </div>
+            `).join('');
+            
+            list.innerHTML = `<div class="knowledge-list">${html}</div>`;
+        }
+        
+        // 更新分类选择框
+        function updateCategorySelects() {
+            const searchCategory = document.getElementById('searchCategory');
+            searchCategory.innerHTML = '<option value="">全部分类</option>' + 
+                categories.map(cat => `<option value="${cat}">${cat}</option>`).join('');
+        }
+        
+        // 标签页切换
+        function showTab(tabName) {
+            // 隐藏所有标签页
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 显示选中的标签页
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        // 执行搜索
+        async function performSearch() {
+            const query = document.getElementById('searchQuery').value.trim();
+            if (!query) {
+                showAlert('请输入搜索内容', 'error', 'searchResults');
+                return;
+            }
+            
+            const topK = parseInt(document.getElementById('searchTopK').value);
+            const category = document.getElementById('searchCategory').value;
+            
+            try {
+                const response = await fetch('/api/knowledge/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        top_k: topK,
+                        category: category || null
+                    })
+                });
+                
+                const data = await response.json();
+                displaySearchResults(data);
+                
+            } catch (error) {
+                console.error('搜索失败:', error);
+                showAlert('搜索失败', 'error', 'searchResults');
+            }
+        }
+        
+        // 显示搜索结果
+        function displaySearchResults(data) {
+            const container = document.getElementById('searchResults');
+            
+            if (data.results.length === 0) {
+                container.innerHTML = `
+                    <div class="knowledge-list">
+                        <div class="knowledge-item">
+                            <div style="text-align: center; color: #666;">
+                                🔍 未找到与 "${data.query}" 相关的知识
+                            </div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            const html = `
+                <h4>🎯 搜索结果 (查询: "${data.query}", 找到 ${data.total_found} 条)</h4>
+                <div class="knowledge-list">
+                    ${data.results.map((doc, index) => `
+                        <div class="knowledge-item search-result">
+                            <div class="knowledge-content">
+                                ${doc.content}
+                                <span class="score-badge">相似度: ${(doc.score || 0).toFixed(3)}</span>
+                            </div>
+                            <div class="knowledge-meta">
+                                <span>#${index + 1}</span>
+                                <span>ID: ${doc.id}</span>
+                                <span class="category-badge">${doc.category || '未分类'}</span>
+                                <span>排名: ${doc.rank || index + 1}</span>
+                            </div>
+                            ${doc.keywords && doc.keywords.length > 0 ? `
+                                <div style="margin-top: 8px;">
+                                    ${doc.keywords.map(keyword => `<span class="keywords-tag">${keyword}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+        
+        // 清空搜索结果
+        function clearSearchResults() {
+            document.getElementById('searchResults').innerHTML = '';
+            document.getElementById('searchQuery').value = '';
+        }
+        
+        // 添加知识
+        async function handleAddKnowledge(event) {
+            event.preventDefault();
+            
+            const content = document.getElementById('newContent').value.trim();
+            const category = document.getElementById('newCategory').value.trim();
+            const keywordsStr = document.getElementById('newKeywords').value.trim();
+            
+            if (!content || !category) {
+                showAlert('请填写完整的知识内容和分类', 'error', 'addAlert');
+                return;
+            }
+            
+            const keywords = keywordsStr ? keywordsStr.split(',').map(k => k.trim()).filter(k => k) : [];
+            
+            try {
+                const response = await fetch('/api/knowledge', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: content,
+                        category: category,
+                        keywords: keywords
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('知识添加成功！', 'success', 'addAlert');
+                    clearAddForm();
+                    await loadKnowledgeData(); // 重新加载数据
+                } else {
+                    showAlert(result.message || '添加失败', 'error', 'addAlert');
+                }
+                
+            } catch (error) {
+                console.error('添加知识失败:', error);
+                showAlert('添加失败', 'error', 'addAlert');
+            }
+        }
+        
+        // 清空添加表单
+        function clearAddForm() {
+            document.getElementById('newContent').value = '';
+            document.getElementById('newCategory').value = '';
+            document.getElementById('newKeywords').value = '';
+            document.getElementById('addAlert').innerHTML = '';
+        }
+        
+        // 编辑知识
+        function editKnowledge(id) {
+            const doc = knowledgeData.find(d => d.id === id);
+            if (!doc) return;
+            
+            document.getElementById('editId').value = id;
+            document.getElementById('editContent').value = doc.content;
+            document.getElementById('editCategory').value = doc.category || '';
+            document.getElementById('editKeywords').value = (doc.keywords || []).join(', ');
+            document.getElementById('editAlert').innerHTML = '';
+            
+            document.getElementById('editModal').style.display = 'block';
+        }
+        
+        // 处理编辑提交
+        async function handleEditKnowledge(event) {
+            event.preventDefault();
+            
+            const id = document.getElementById('editId').value;
+            const content = document.getElementById('editContent').value.trim();
+            const category = document.getElementById('editCategory').value.trim();
+            const keywordsStr = document.getElementById('editKeywords').value.trim();
+            
+            if (!content || !category) {
+                showAlert('请填写完整的知识内容和分类', 'error', 'editAlert');
+                return;
+            }
+            
+            const keywords = keywordsStr ? keywordsStr.split(',').map(k => k.trim()).filter(k => k) : [];
+            
+            try {
+                const response = await fetch(`/api/knowledge/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: content,
+                        category: category,
+                        keywords: keywords
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('知识更新成功！', 'success', 'editAlert');
+                    setTimeout(() => {
+                        closeEditModal();
+                        loadKnowledgeData();
+                    }, 1000);
+                } else {
+                    showAlert(result.message || '更新失败', 'error', 'editAlert');
+                }
+                
+            } catch (error) {
+                console.error('更新知识失败:', error);
+                showAlert('更新失败', 'error', 'editAlert');
+            }
+        }
+        
+        // 关闭编辑模态框
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+        
+        // 删除知识
+        async function deleteKnowledge(id) {
+            if (!confirm('确定要删除这条知识吗？此操作不可撤销。')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/knowledge/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('知识删除成功', 'success');
+                    await loadKnowledgeData();
+                } else {
+                    showAlert(result.message || '删除失败', 'error');
+                }
+                
+            } catch (error) {
+                console.error('删除知识失败:', error);
+                showAlert('删除失败', 'error');
+            }
+        }
+        
+        // 显示提示信息
+        function showAlert(message, type, containerId = null) {
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+            const alertHtml = `<div class="alert ${alertClass}">${message}</div>`;
+            
+            if (containerId) {
+                document.getElementById(containerId).innerHTML = alertHtml;
+            } else {
+                // 在页面顶部显示
+                const container = document.querySelector('.container');
+                const alertDiv = document.createElement('div');
+                alertDiv.innerHTML = alertHtml;
+                container.insertBefore(alertDiv, container.firstChild);
+                
+                // 3秒后自动消失
+                setTimeout(() => {
+                    alertDiv.remove();
+                }, 3000);
+            }
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('editModal');
+            if (event.target == modal) {
+                closeEditModal();
+            }
+        }
+    </script>
+    </div>
+</body>
+</html>
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+            const alertHtml = `<div class="alert ${alertClass}">${message}</div>`;
+            
+            if (containerId) {
+                document.getElementById(containerId).innerHTML = alertHtml;
+            } else {
+                // 在页面顶部显示
+                const container = document.querySelector('.container');
+                const alertDiv = document.createElement('div');
+                alertDiv.innerHTML = alertHtml;
+                container.insertBefore(alertDiv, container.firstChild);
+                
+                // 3秒后自动消失
+                setTimeout(() => {
+                    alertDiv.remove();
+                }, 3000);
+            }
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('editModal');
+            if (event.target === modal) {
+                closeEditModal();
+            }
+        }
+    </script>
+</body>
+</html>
