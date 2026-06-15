@@ -216,15 +216,3 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 | `semantic_memories` | 语义记忆（类型、Key-Value、置信度） |
 | `session_summaries` | 会话摘要（压缩后的上下文） |
 
----
-
-## 技术亮点（面试可展开）
-
-1. **分层架构 + 单向依赖**：五层严格分层，下层不反向调用上层，避免循环依赖
-2. **Repository 模式**：数据访问统一封装，`SessionManager` 管理事务边界
-3. **原子性预约**：单个 DB 事务内完成冲突检测与记录插入，消除并发竞态
-4. **多 Agent 分流**：LLM 结构化输出做意图分类，避免单一 Agent 职责膨胀
-5. **三层记忆系统**：工作记忆 + 语义偏好 + 摘要压缩，控制上下文长度的同时保留关键信息
-6. **FAISS 向量检索**：知识库增删改后自动重建索引，支持分类过滤和 Top-K 排序
-7. **流式响应**：FastAPI AsyncGenerator 实现 Server-Sent Events，边生成边推送
-8. **并发写安全**：SQLite WAL 模式 + `threading.RLock` 进程级写锁，多线程安全
