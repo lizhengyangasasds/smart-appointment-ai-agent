@@ -2,17 +2,24 @@
 知识库管理API
 """
 from fastapi import APIRouter, HTTPException
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/knowledge", tags=["知识库管理"])
 
 
 class KnowledgeItem(BaseModel):
-    id: int = None
-    question: str
-    answer: str
+    """知识条目模型。
+
+    字段: content / category / keywords  — 前端使用
+    字段: question / answer             — 向后兼容
+    """
+    id: Optional[int] = None
+    content: Optional[str] = None      # 前端主字段
     category: str = "general"
+    keywords: Optional[List[str]] = None
+    question: Optional[str] = None      # 向后兼容
+    answer: Optional[str] = None        # 向后兼容
 
 
 class SearchRequest(BaseModel):
@@ -71,18 +78,32 @@ async def get_knowledge(knowledge_id: int):
 async def add_knowledge(item: KnowledgeItem):
     """添加新的知识条目"""
     try:
-        knowledge_service = await app.get_knowledge_service()
-        # 将问答组合成文档内容
-        content = f"问题: {item.question}\n答案: {item.answer}"
+        from services.knowledge_service import KnowledgeService
+
+        knowledge_service = KnowledgeService()
+        if not knowledge_service.initialized:
+            await knowledge_service.initialize()
+
+        # 优先使用前端字段 content，否则拼接兼容字段
+        if item.content:
+            content = item.content
+        elif item.question or item.answer:
+            content = f"问题: {item.question or ''}\n答案: {item.answer or ''}"
+        else:
+            raise HTTPException(status_code=400, detail="content 或 question/answer 字段至少需要一个")
+
         result = await knowledge_service.add_document(
             content=content,
-            category=item.category
+            category=item.category,
+            keywords=item.keywords or [],
         )
         return {
             "status": "success",
             "message": "知识条目添加成功",
             "data": result
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"添加知识条目失败: {str(e)}")
 
@@ -92,11 +113,19 @@ async def update_knowledge(knowledge_id: int, item: KnowledgeItem):
     """更新知识条目"""
     try:
         from services.knowledge_service import KnowledgeService
+
         knowledge_service = KnowledgeService()
         if not knowledge_service.initialized:
             await knowledge_service.initialize()
-        # 将问答组合成文档内容
-        content = f"问题: {item.question}\n答案: {item.answer}"
+
+        # 优先使用前端字段 content，否则拼接兼容字段
+        if item.content:
+            content = item.content
+        elif item.question or item.answer:
+            content = f"问题: {item.question or ''}\n答案: {item.answer or ''}"
+        else:
+            content = None  # 不更新内容
+
         result = await knowledge_service.update_document(
             doc_id=knowledge_id,
             content=content,
@@ -147,8 +176,11 @@ async def search_knowledge(request: SearchRequest):
         results = await knowledge_service.search(request.query)
         return {
             "status": "success",
-            "data": results,
-            "count": len(results)
+            "results": results,          # 前端期望 results 字段
+            "query": request.query,      # 前端期望 query 字段
+            "data": results,            # 保留 data 以兼容其他调用方
+            "count": len(results),
+            "total_found": len(results)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"搜索知识库失败: {str(e)}")

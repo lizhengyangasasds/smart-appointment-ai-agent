@@ -25,18 +25,22 @@ class ResponseGenerator:
         except Exception as e:
             return f"抱歉，处理您的问题时出现了错误。请稍后再试。"
     
-    async def generate_response_stream(self, user_input: str, knowledge_docs: list) -> AsyncGenerator[str, None]:
+    async def generate_response_stream(
+        self, user_input: str, knowledge_docs: list, memory_context: str = ""
+    ) -> AsyncGenerator[str, None]:
         """生成流式响应"""
         try:
-            prompt = self.prompt_builder.build_consultation_prompt(user_input, knowledge_docs)
+            prompt = self.prompt_builder.build_consultation_prompt(
+                user_input, knowledge_docs, memory_context
+            )
             response = await self.llm.ainvoke([{"role": "user", "content": prompt}])
             content = response.content
-            
+
             # 只在开头添加一次REPLY标签，然后逐字符输出
             yield "[REPLY][咨询机器人]"
             for char in content:
                 yield char
-                
+
         except Exception as e:
             error_msg = f"抱歉，处理您的问题时出现了错误：{str(e)}"
             yield "[REPLY][咨询机器人]"

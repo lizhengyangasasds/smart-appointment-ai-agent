@@ -11,10 +11,15 @@ Database Module
 from .db_router import DatabaseRouter, TechnicianDBRouter, KnowledgeDBRouter
 from .repositories import TechnicianRepository, KnowledgeRepository, UserBehaviorRepository
 from .base import SessionManager
+from .base.exceptions import SlotTakenException
 from .models import (
-    Base, Technician, TechnicianSchedule, 
+    Base, Technician, TechnicianSchedule,
     KnowledgeDocument, UserBehavior, UserPreference, UserRecommendation
 )
+from .models_memory import (
+    ConversationMessage, SemanticMemory, SessionSummary
+)
+from .repositories.memory_repository import MemoryRepository
 
 __all__ = [
     # 主要入口
@@ -39,5 +44,13 @@ __all__ = [
     'KnowledgeDocument',
     'UserBehavior',
     'UserPreference',
-    'UserRecommendation'
+    'UserRecommendation',
+
+    # 记忆系统模型
+    'ConversationMessage',
+    'SemanticMemory',
+    'SessionSummary',
+
+    # 记忆 Repository
+    'MemoryRepository',
 ]

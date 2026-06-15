@@ -3,11 +3,12 @@
 
 包含：
 - 知识库服务
-- 技师服务  
+- 技师服务
 - 预约服务
 - 用户行为服务
 - 推荐调度服务
 - 文本嵌入工具
+- 记忆服务（工作记忆 + 语义记忆）
 """
 
 from .text_embedding import (
@@ -21,6 +22,9 @@ from .technician_service import TechnicianService
 from .appointment_service import AppointmentService
 from .user_behavior_service import UserBehaviorService
 from .recommendation_service import RecommendationService
+from .conversation_memory_service import ConversationMemoryService, TokenCounter
+from .semantic_memory_service import SemanticMemoryService, SemanticExtractor
+from .memory_manager import MemoryManager
 
 __all__ = [
     'embed_input',
@@ -31,5 +35,10 @@ __all__ = [
     'TechnicianService',
     'AppointmentService',
     'UserBehaviorService',
-    'RecommendationService'
+    'RecommendationService',
+    'ConversationMemoryService',
+    'TokenCounter',
+    'SemanticMemoryService',
+    'SemanticExtractor',
+    'MemoryManager',
 ]

@@ -39,10 +39,21 @@ class PromptBuilder:
             "用户输入：{user_input}"
         )
     
-    def build_consultation_prompt(self, user_input: str, knowledge_docs: List[Dict[str, Any]]) -> str:
+    def build_consultation_prompt(
+        self,
+        user_input: str,
+        knowledge_docs: List[Dict[str, Any]],
+        memory_context: str = "",
+    ) -> str:
         """构建咨询提示词"""
         context = self._build_knowledge_context(knowledge_docs)
-        return f"{self.system_prompt}\n\n{context}\n用户问题：{user_input}\n\n请回答用户的问题。"
+        parts = [self.system_prompt]
+
+        if memory_context:
+            parts.insert(1, f"\n【对话历史上下文】：\n{memory_context}\n")
+
+        parts.append(f"\n{context}\n用户问题：{user_input}\n\n请回答用户的问题。")
+        return "\n".join(parts)
     
     def build_classification_prompt(self, user_input: str) -> str:
         """构建分类提示词"""

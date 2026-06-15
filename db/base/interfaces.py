@@ -59,9 +59,42 @@ class BaseScheduleRepository(ABC):
     """
     
     @abstractmethod
-    def add_schedule(self, technician_id: int, start_time: datetime, end_time: datetime, 
+    def reserve_slot(self, technician_id: int, start_time: datetime, end_time: datetime,
+                     status: str, appointment_id: Optional[int] = None) -> int:
+        """
+        原子性地预约技师时间段（检查+插入在同一事务中完成）。
+
+        Args:
+            technician_id: 技师ID
+            start_time: 开始时间
+            end_time: 结束时间
+            status: 状态 ('busy' 或 'free')
+            appointment_id: 预约ID（如果是忙碌状态）
+
+        Returns:
+            新创建的排班ID
+
+        Raises:
+            SlotTakenException: 时间段已被占用
+        """
+        pass
+
+    @abstractmethod
+    def add_schedule(self, technician_id: int, start_time: datetime, end_time: datetime,
                     status: str, appointment_id: Optional[int] = None) -> int:
-        """添加排班"""
+        """
+        添加排班记录（不检查可用性，适合外部已保证唯一性的场景）。
+
+        Args:
+            technician_id: 技师ID
+            start_time: 开始时间
+            end_time: 结束时间
+            status: 状态 ('busy' 或 'free')
+            appointment_id: 预约ID（如果是忙碌状态）
+
+        Returns:
+            新创建的排班ID
+        """
         pass
 
     @abstractmethod

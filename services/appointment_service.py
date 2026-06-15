@@ -7,13 +7,20 @@
 3. 提供预约相关的数据服务
 """
 
-import time
+import uuid
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from db.db_router import DatabaseRouter
+from db.base.exceptions import SlotTakenException
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class SlotTakenError(Exception):
+    """Raised when the requested time slot is already booked."""
+    pass
+
 
 class AppointmentService:
     """预约服务类"""
@@ -22,27 +29,39 @@ class AppointmentService:
         self.db_router = DatabaseRouter(db_path)
         self.technician_repo = self.db_router.technicians
     
-    def save_appointment(self, technician_id: str, start_time: datetime, 
-                        end_time: datetime, appointment_history: Dict[str, Any], 
+    def save_appointment(self, technician_id: str, start_time: datetime,
+                        end_time: datetime, appointment_history: Dict[str, Any],
                         session_id: str) -> bool:
         """保存预约信息到数据库"""
+        logger.info(
+            f"[AppointmentService] 保存预约: tech_id={technician_id}, "
+            f"start={start_time}, end={end_time}"
+        )
         try:
-            appointment_id = int(time.time() * 1000)
-            
-            # 保存预约到数据库
-            self.technician_repo.add_schedule(
+            # 使用原子性预约方法，彻底消除并发双重预约竞态
+            self.technician_repo.reserve_slot(
                 technician_id=int(technician_id),
                 start_time=start_time,
                 end_time=end_time,
                 status="busy",
-                appointment_id=appointment_id
+                appointment_id=None  # 预约ID由DB自增生成
             )
-            
-            logger.info(f"预约信息已保存到数据库：技师ID={technician_id}, 时间={start_time} 到 {end_time}, 预约ID={appointment_id}")
+            logger.info(
+                f"预约信息已保存到数据库：技师ID={technician_id}, "
+                f"时间={start_time} 到 {end_time}"
+            )
             return True
-            
+
+        except SlotTakenException:
+            logger.warning(
+                f"[AppointmentService] 预约失败，时间段已被占用: "
+                f"tech_id={technician_id}, start={start_time}, end={end_time}"
+            )
+            return False
         except Exception as e:
             logger.error(f"保存预约信息到数据库失败：{e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def get_technician_by_id(self, technician_id: int) -> Optional[Dict[str, Any]]:

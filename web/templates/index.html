@@ -453,6 +453,18 @@
     const typingIndicator = document.getElementById('typing-indicator');
     let lastBotBubble = null;
 
+    // Session 管理：每个浏览器tab一个独立session
+    const SESSION_KEY = 'smart_appointment_session_id';
+    function getSessionId() {
+        let sid = localStorage.getItem(SESSION_KEY);
+        if (!sid) {
+            sid = 'sess_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+            localStorage.setItem(SESSION_KEY, sid);
+        }
+        return sid;
+    }
+    const sessionId = getSessionId();
+
     function addMessage(text, sender) {
         const msgDiv = document.createElement('div');
         msgDiv.className = 'message ' + sender;
@@ -568,7 +580,7 @@
             const res = await fetch('/chat/stream', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({message: text})
+                body: JSON.stringify({message: text, session_id: sessionId})
             });
             
             hideTypingIndicator();
@@ -595,17 +607,34 @@
         }
     }
 
-    clearBtn.onclick = function() {
+    clearBtn.onclick = async function() {
+        // 清除服务器端记忆
+        try {
+            await fetch('/api/memory/reset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({session_id: sessionId})
+            });
+        } catch (e) {
+            console.warn('Reset memory failed:', e);
+        }
+
+        // 清除本地存储的session_id，重新开始
+        localStorage.removeItem(SESSION_KEY);
+
         // 保留欢迎消息，只清除其他对话
         const welcomeMessage = chatBox.querySelector('.message.bot').cloneNode(true);
         chatBox.innerHTML = '';
         chatBox.appendChild(welcomeMessage);
-        
+
         // 重新设置lastBotBubble为null
         lastBotBubble = null;
-        
+
         // 聚焦输入框
         userInput.focus();
+
+        // 刷新页面以使用新session
+        location.reload();
     }
     
     // 添加回车键发送功能

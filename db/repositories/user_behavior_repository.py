@@ -40,7 +40,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
         Returns:
             新创建的行为记录ID
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             behavior = UserBehavior(
                 user_id=user_id,
                 action_type=action_type,
@@ -109,7 +109,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
         Returns:
             更新是否成功
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             # 查找现有偏好
             existing = session.query(UserPreference).filter(
                 UserPreference.user_id == user_id,
@@ -188,7 +188,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
         Returns:
             新创建的推荐ID
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             recommendation = UserRecommendation(
                 user_id=user_id,
                 recommendation_type=recommendation_type,
@@ -227,7 +227,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
         Returns:
             标记是否成功
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             recommendation = session.query(UserRecommendation).filter(
                 UserRecommendation.id == recommendation_id
             ).first()

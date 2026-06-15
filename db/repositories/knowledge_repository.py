@@ -38,7 +38,7 @@ class KnowledgeRepository(BaseKnowledgeRepository):
         Returns:
             新创建的文档ID
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             document = KnowledgeDocument(
                 content=content,
                 category=category,
@@ -103,7 +103,7 @@ class KnowledgeRepository(BaseKnowledgeRepository):
         Returns:
             更新是否成功
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             document = session.query(KnowledgeDocument).filter(
                 KnowledgeDocument.id == doc_id
             ).first()
@@ -134,7 +134,7 @@ class KnowledgeRepository(BaseKnowledgeRepository):
         Returns:
             删除是否成功
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             document = session.query(KnowledgeDocument).filter(
                 KnowledgeDocument.id == doc_id
             ).first()

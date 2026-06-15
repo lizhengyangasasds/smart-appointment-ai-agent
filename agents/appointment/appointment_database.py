@@ -39,6 +39,7 @@ class AppointmentDatabase:
                         end_time: datetime, appointment_history: Dict[str, Any], 
                         session_id: str) -> bool:
         """保存预约信息到数据库"""
+        print(f"[DEBUG] save_appointment called: tech_id={technician_id}({type(technician_id).__name__}), start={start_time}, end={end_time}")
         try:
             # 通过Services层保存预约
             success = self.appointment_service.save_appointment(
@@ -54,6 +55,8 @@ class AppointmentDatabase:
             
         except Exception as e:
             print(f"保存预约信息到数据库失败：{e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def update_memory_schedule(self, technician_id: str, start_time: datetime, end_time: datetime):

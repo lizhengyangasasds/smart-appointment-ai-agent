@@ -39,70 +39,95 @@ class AgentRouter:
         if self.consultant_agent and hasattr(self.consultant_agent, 'set_shared_state'):
             self.consultant_agent.set_shared_state(self.state_manager.state)
     
-    async def route_to_appointment(self, task: str) -> AsyncGenerator[str, None]:
+    async def route_to_appointment(self, task: str, memory_context: str = "") -> AsyncGenerator[str, None]:
         """
         路由到预约Agent处理
-        
+
         Args:
             task: 用户任务内容
-            
+            memory_context: 外部记忆上下文（对话历史摘要+用户画像）
+
         Yields:
             str: 流式响应内容
         """
         if not self.appointment_agent:
             yield "[ERROR]预约服务暂时不可用"
             return
-        
+
         # 转换状态
         self.state_manager.transition_to_appointment()
-        
+
         # 生成思考提示
         yield "[THOUGHT][归类机器人] 归类机器人：我发现这是一个预约任务，我将转给预约机器人处理。"
-        
-        # 调用预约Agent
+
+        # 调用预约Agent，传入记忆上下文
         try:
-            async for token in self.appointment_agent.run_stream(user_input=task):
+            async for token in self.appointment_agent.run_stream(user_input=task, memory_context=memory_context):
                 yield token
         except Exception as e:
             yield f"[ERROR]预约处理失败: {str(e)}"
             self.state_manager.reset_to_classify()
-    
-    async def route_to_consultation(self, task: str) -> AsyncGenerator[str, None]:
+
+    async def route_to_consultation(self, task: str, memory_context: str = "") -> AsyncGenerator[str, None]:
         """
         路由到咨询Agent处理
-        
+
         Args:
             task: 用户任务内容
-            
+            memory_context: 外部记忆上下文
+
         Yields:
             str: 流式响应内容
         """
         if not self.consultant_agent:
             yield "[ERROR]咨询服务暂时不可用"
             return
-        
+
         # 转换状态
         self.state_manager.transition_to_consultation()
-        
+
         # 生成思考提示
         yield "[THOUGHT][归类机器人] 归类机器人：我发现这是一个咨询任务，我将转给咨询机器人处理。"
-        
-        # 调用咨询Agent
+
+        # 调用咨询Agent，传入记忆上下文
         try:
             async with self.consultant_agent as agent:
-                async for token in agent.consult_stream(task):
+                async for token in agent.consult_stream(task, memory_context=memory_context):
                     yield token
         except Exception as e:
             yield f"[ERROR]咨询处理失败: {str(e)}"
             self.state_manager.reset_to_classify()
-    
+
+    async def route_by_state(self, task: str, memory_context: str = "") -> AsyncGenerator[str, None]:
+        """
+        根据当前状态路由任务（用于状态持续的场景）
+
+        Args:
+            task: 用户任务内容
+            memory_context: 外部记忆上下文
+
+        Yields:
+            str: 流式响应内容
+        """
+        if self.state_manager.is_in_appointment_flow():
+            async for token in self.appointment_agent.run_stream(user_input=task, memory_context=memory_context):
+                yield token
+        elif self.state_manager.is_in_consultation_flow():
+            async with self.consultant_agent as agent:
+                async for token in agent.consult_stream(task, memory_context=memory_context):
+                    yield token
+        else:
+            # 状态异常，重置并提示
+            self.state_manager.reset_to_classify()
+            yield "[ERROR]会话状态异常，已重置。请重新开始对话。"
+
     async def handle_unsupported_task(self, category: str) -> AsyncGenerator[str, None]:
         """
         处理不支持的任务类型
-        
+
         Args:
             category: 任务分类结果
-            
+
         Yields:
             str: 回复内容
         """
@@ -110,29 +135,7 @@ class AgentRouter:
         yield "[REPLY][归类机器人]"
         for char in reply:
             yield char
-    
-    async def route_by_state(self, task: str) -> AsyncGenerator[str, None]:
-        """
-        根据当前状态路由任务（用于状态持续的场景）
-        
-        Args:
-            task: 用户任务内容
-            
-        Yields:
-            str: 流式响应内容
-        """
-        if self.state_manager.is_in_appointment_flow():
-            async for token in self.appointment_agent.run_stream(user_input=task):
-                yield token
-        elif self.state_manager.is_in_consultation_flow():
-            async with self.consultant_agent as agent:
-                async for token in agent.consult_stream(task):
-                    yield token
-        else:
-            # 状态异常，重置并提示
-            self.state_manager.reset_to_classify()
-            yield "[ERROR]会话状态异常，已重置。请重新开始对话。"
-    
+
     def get_available_services(self) -> list:
         """获取可用的服务列表"""
         services = []

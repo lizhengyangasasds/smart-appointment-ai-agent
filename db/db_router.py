@@ -13,7 +13,18 @@ class DatabaseRouter:
     3. 协调各个Repository的操作
     """
     
+    _instance = None
+    
+    def __new__(cls, db_path: str = 'sqlite:///data/smart_appointment.db'):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self, db_path: str = 'sqlite:///data/smart_appointment.db'):
+        if self._initialized:
+            return
+        self._initialized = True
         """
         初始化数据库路由器
         
@@ -76,6 +87,10 @@ class TechnicianDBRouter:
         return self.technician_repo.get_all_strengths()
 
     # 排班相关方法
+    def reserve_slot(self, technician_id: int, start_time, end_time, status, appointment_id=None) -> int:
+        """原子性预约时间段（检查+插入在同一事务中）"""
+        return self.technician_repo.reserve_slot(technician_id, start_time, end_time, status, appointment_id)
+
     def add_schedule(self, technician_id: int, start_time, end_time, status, appointment_id=None) -> None:
         return self.technician_repo.add_schedule(technician_id, start_time, end_time, status, appointment_id)
 

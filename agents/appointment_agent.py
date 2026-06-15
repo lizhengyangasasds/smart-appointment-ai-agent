@@ -82,18 +82,22 @@ class AppointmentAgent:
         """设置共享状态"""
         self.state = shared_state
 
-    async def run_stream(self, user_input=None):
+    async def run_stream(self, user_input=None, memory_context: str = ""):
         """
         流式处理用户预约请求的主函数
-        
+
         这是整个预约流程的入口点，协调各个组件完成预约
+
+        Args:
+            user_input: 用户输入
+            memory_context: 从 MemoryManager 注入的外部上下文（对话历史摘要+用户画像）
         """
         if user_input is None:
             user_input = input("用户：")
-        
+
         # 1. 解析用户输入（内部 JSON，不向用户流式输出，避免英文字段名暴露在聊天界面）
         ai_content = ""
-        for token in self.input_parser.parse_stream(user_input, self.chat_history):
+        for token in self.input_parser.parse_stream(user_input, self.chat_history, memory_context):
             ai_content += token
 
         try:
@@ -111,7 +115,7 @@ class AppointmentAgent:
                     self.state.value = StateEnum.CLASSIFY
                 
                 async for token in self.appointment_processor.handle_unrelated_request(
-                    user_input, self.unrelated_callback, self.state
+                    user_input, self.unrelated_callback, self.state, memory_context
                 ):
                     yield token
                 return

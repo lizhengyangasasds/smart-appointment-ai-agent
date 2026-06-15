@@ -26,7 +26,7 @@ class TaskClassifier:
         self.chain = self.prompt | self.llm
     
     def _initialize_prompt(self):
-        """初始化分类提示词模板"""
+        """初始化分类提示词模板（支持可选的历史上下文）"""
         self.prompt = PromptTemplate(
             input_variables=["task"],
             template=(
@@ -46,35 +46,42 @@ class TaskClassifier:
                 "只返回类别英文名。\n\n"
                 "举例说明：假如task为'我要预约8号工作人员1小时的推拿'，则输出appointment。\n"
                 "假如输入为我想问一下按摩房在哪里，则输入query。\n"
+                "{history}"
                 "以下是本次归类任务:\n"
                 "任务内容：{task}"
             )
         )
     
-    async def classify_task(self, task: str) -> str:
+    async def classify_task(self, task: str, memory_context: str = "") -> str:
         """
         分类任务
-        
+
         Args:
             task: 用户输入的任务内容
-            
+            memory_context: 对话历史上下文（可选，用于提升分类准确率）
+
         Returns:
             str: 分类结果 ('appointment', 'query', 'pay', 'statistics', 'other')
         """
         try:
-            category_msg = await self.chain.ainvoke({"task": task})
+            history_str = (
+                f"【对话历史上下文】：\n{memory_context}\n\n"
+                if memory_context
+                else ""
+            )
+            category_msg = await self.chain.ainvoke(
+                {"task": task, "history": history_str}
+            )
             category = category_msg.content.strip().lower()
-            
-            # 验证分类结果是否有效
+
             valid_categories = {'appointment', 'query', 'pay', 'statistics', 'other'}
             if category not in valid_categories:
-                return 'other'  # 默认归类为其他
-                
+                return 'other'
             return category
-            
+
         except Exception as e:
             print(f"任务分类失败: {str(e)}")
-            return 'other'  # 发生错误时默认归类为其他
+            return 'other'
     
     def get_category_description(self, category: str) -> str:
         """获取分类类别的描述信息"""

@@ -585,11 +585,22 @@
     <script>
         let knowledgeData = [];
         let categories = [];
-        
+
+        // XSS 防护：转义 HTML 特殊字符
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', function() {
             loadKnowledgeData();
-            
+
             // 绑定表单提交事件
             document.getElementById('addKnowledgeForm').addEventListener('submit', handleAddKnowledge);
             document.getElementById('editKnowledgeForm').addEventListener('submit', handleEditKnowledge);
@@ -640,18 +651,18 @@
                 html += `
                     <div class="knowledge-list" style="margin-bottom: 20px;">
                         <div style="background: #f8f9fa; padding: 15px; font-weight: bold; font-size: 16px;">
-                            📁 ${category} (${docs.length}条)
+                            📁 ${escapeHtml(category)} (${docs.length}条)
                         </div>
                         ${docs.map(doc => `
                             <div class="knowledge-item">
-                                <div class="knowledge-content">${doc.content}</div>
+                                <div class="knowledge-content">${escapeHtml(doc.content)}</div>
                                 <div class="knowledge-meta">
                                     <span>ID: ${doc.id}</span>
                                     <span>更新: ${new Date(doc.updated_at).toLocaleString()}</span>
                                 </div>
                                 ${doc.keywords && doc.keywords.length > 0 ? `
                                     <div style="margin-top: 8px;">
-                                        ${doc.keywords.map(keyword => `<span class="keywords-tag">${keyword}</span>`).join('')}
+                                        ${doc.keywords.map(keyword => `<span class="keywords-tag">${escapeHtml(keyword)}</span>`).join('')}
                                     </div>
                                 ` : ''}
                             </div>
@@ -674,16 +685,16 @@
             
             const html = knowledgeData.map(doc => `
                 <div class="knowledge-item">
-                    <div class="knowledge-content">${doc.content}</div>
+                    <div class="knowledge-content">${escapeHtml(doc.content)}</div>
                     <div class="knowledge-meta">
                         <span>ID: ${doc.id}</span>
-                        <span class="category-badge">${doc.category || '未分类'}</span>
+                        <span class="category-badge">${escapeHtml(doc.category || '未分类')}</span>
                         <span>创建: ${new Date(doc.created_at).toLocaleString()}</span>
                         <span>更新: ${new Date(doc.updated_at).toLocaleString()}</span>
                     </div>
                     ${doc.keywords && doc.keywords.length > 0 ? `
                         <div style="margin-top: 8px;">
-                            ${doc.keywords.map(keyword => `<span class="keywords-tag">${keyword}</span>`).join('')}
+                            ${doc.keywords.map(keyword => `<span class="keywords-tag">${escapeHtml(keyword)}</span>`).join('')}
                         </div>
                     ` : ''}
                     <div class="knowledge-actions">
@@ -699,8 +710,8 @@
         // 更新分类选择框
         function updateCategorySelects() {
             const searchCategory = document.getElementById('searchCategory');
-            searchCategory.innerHTML = '<option value="">全部分类</option>' + 
-                categories.map(cat => `<option value="${cat}">${cat}</option>`).join('');
+            searchCategory.innerHTML = '<option value="">全部分类</option>' +
+                categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('');
         }
         
         // 标签页切换
@@ -760,39 +771,39 @@
                     <div class="knowledge-list">
                         <div class="knowledge-item">
                             <div style="text-align: center; color: #666;">
-                                🔍 未找到与 "${data.query}" 相关的知识
+                                🔍 未找到与 "${escapeHtml(data.query)}" 相关的知识
                             </div>
                         </div>
                     </div>
                 `;
                 return;
             }
-            
+
             const html = `
-                <h4>🎯 搜索结果 (查询: "${data.query}", 找到 ${data.total_found} 条)</h4>
+                <h4>🎯 搜索结果 (查询: "${escapeHtml(data.query)}", 找到 ${data.total_found} 条)</h4>
                 <div class="knowledge-list">
                     ${data.results.map((doc, index) => `
                         <div class="knowledge-item search-result">
                             <div class="knowledge-content">
-                                ${doc.content}
+                                ${escapeHtml(doc.content)}
                                 <span class="score-badge">相似度: ${(doc.score || 0).toFixed(3)}</span>
                             </div>
                             <div class="knowledge-meta">
                                 <span>#${index + 1}</span>
                                 <span>ID: ${doc.id}</span>
-                                <span class="category-badge">${doc.category || '未分类'}</span>
+                                <span class="category-badge">${escapeHtml(doc.category || '未分类')}</span>
                                 <span>排名: ${doc.rank || index + 1}</span>
                             </div>
                             ${doc.keywords && doc.keywords.length > 0 ? `
                                 <div style="margin-top: 8px;">
-                                    ${doc.keywords.map(keyword => `<span class="keywords-tag">${keyword}</span>`).join('')}
+                                    ${doc.keywords.map(keyword => `<span class="keywords-tag">${escapeHtml(keyword)}</span>`).join('')}
                                 </div>
                             ` : ''}
                         </div>
                     `).join('')}
                 </div>
             `;
-            
+
             container.innerHTML = html;
         }
         
@@ -971,36 +982,6 @@
         window.onclick = function(event) {
             const modal = document.getElementById('editModal');
             if (event.target == modal) {
-                closeEditModal();
-            }
-        }
-    </script>
-    </div>
-</body>
-</html>
-            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
-            const alertHtml = `<div class="alert ${alertClass}">${message}</div>`;
-            
-            if (containerId) {
-                document.getElementById(containerId).innerHTML = alertHtml;
-            } else {
-                // 在页面顶部显示
-                const container = document.querySelector('.container');
-                const alertDiv = document.createElement('div');
-                alertDiv.innerHTML = alertHtml;
-                container.insertBefore(alertDiv, container.firstChild);
-                
-                // 3秒后自动消失
-                setTimeout(() => {
-                    alertDiv.remove();
-                }, 3000);
-            }
-        }
-        
-        // 点击模态框外部关闭
-        window.onclick = function(event) {
-            const modal = document.getElementById('editModal');
-            if (event.target === modal) {
                 closeEditModal();
             }
         }

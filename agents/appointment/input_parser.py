@@ -59,26 +59,41 @@ class InputParser:
             )
         )
     
-    def parse_stream(self, user_input: str, chat_history: InMemoryChatMessageHistory) -> Generator[str, None, str]:
-        """流式解析用户输入"""
+    def parse_stream(
+        self,
+        user_input: str,
+        chat_history: InMemoryChatMessageHistory,
+        memory_context: str = "",
+    ) -> Generator[str, None, str]:
+        """流式解析用户输入
+
+        Args:
+            user_input: 用户输入
+            chat_history: LangChain InMemoryChatMessageHistory（内部短期记忆）
+            memory_context: 外部记忆上下文（对话历史摘要+用户画像，来自 MemoryManager）
+        """
         # 添加用户消息到历史
         chat_history.add_message(HumanMessage(content=user_input))
-        
+
         # 构建历史字符串
         history_str = "\n".join(
-            [f"用户：{m.content}" if m.type == "human" else f"机器人：{m.content}" 
+            [f"用户：{m.content}" if m.type == "human" else f"机器人：{m.content}"
              for m in chat_history.messages]
         )
-        
+
+        # 拼接外部记忆上下文
+        if memory_context:
+            history_str = f"【对话历史摘要】：\n{memory_context}\n\n【当前对话】：\n{history_str}"
+
         # 流式调用LLM
         response_stream = self.chain.stream({"history": history_str, "user_input": user_input})
         ai_content = ""
-        
+
         for chunk in response_stream:
             token = chunk.content if hasattr(chunk, "content") else str(chunk)
             ai_content += token
             yield token
-        
+
         # 添加AI回复到历史
         chat_history.add_message(AIMessage(content=ai_content))
         return ai_content

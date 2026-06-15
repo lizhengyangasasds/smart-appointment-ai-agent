@@ -67,15 +67,19 @@ class ConsultantAgent:
         """
         return await self.consultation_processor.process_consultation(user_input)
 
-    async def consult_stream(self, user_input: str):
+    async def consult_stream(self, user_input: str, memory_context: str = ""):
         """
         流式输出咨询结果
-        
+
         这是主要的咨询入口点，协调各个组件完成咨询流程
+
+        Args:
+            user_input: 用户输入
+            memory_context: 外部记忆上下文（对话历史摘要+用户画像）
         """
         # 1. 检查是否与咨询相关
         is_consultation = await self.consultation_classifier.is_consultation_related(user_input)
-        
+
         if not is_consultation:
             # 2. 处理与咨询无关的请求
             async for token in self.consultation_processor.handle_unrelated_request(
@@ -83,13 +87,13 @@ class ConsultantAgent:
             ):
                 yield token
             return
-        
-        # 3. 处理咨询相关的请求
+
+        # 3. 处理咨询相关的请求，传入记忆上下文
         async for token in self.consultation_processor.process_consultation_stream(
-            user_input, self.session_id
+            user_input, self.session_id, memory_context
         ):
             yield token
-        
+
         # 4. 重置状态
         self._reset_state_after_consultation()
 

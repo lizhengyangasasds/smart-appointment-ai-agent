@@ -37,38 +37,43 @@ class ClassificationProcessor:
         self.agent_router = agent_router
         self.unrelated_handler = unrelated_handler
     
-    async def process_task_stream(self, task: str) -> AsyncGenerator[str, None]:
+    async def process_task_stream(
+        self,
+        task: str,
+        memory_context: str = "",
+    ) -> AsyncGenerator[str, None]:
         """
         流式处理任务分类和路由
-        
+
         Args:
             task: 用户输入的任务内容
-            
+            memory_context: 外部记忆上下文（对话历史摘要+用户画像）
+
         Yields:
             str: 流式响应内容
         """
         try:
             # 检查是否需要进行分类
             if self.state_manager.should_classify():
-                # 进行任务分类
-                category = await self.task_classifier.classify_task(task)
-                
-                # 根据分类结果路由
+                # 进行任务分类（传入记忆上下文以提升分类准确率）
+                category = await self.task_classifier.classify_task(task, memory_context)
+
+                # 根据分类结果路由，传递记忆上下文
                 if category == "appointment" and self.agent_router.appointment_agent:
-                    async for token in self.agent_router.route_to_appointment(task):
+                    async for token in self.agent_router.route_to_appointment(task, memory_context):
                         yield token
                 elif category == "query" and self.agent_router.consultant_agent:
-                    async for token in self.agent_router.route_to_consultation(task):
+                    async for token in self.agent_router.route_to_consultation(task, memory_context):
                         yield token
                 else:
                     # 不支持的任务类型
                     async for token in self.agent_router.handle_unsupported_task(category):
                         yield token
             else:
-                # 根据当前状态继续处理
-                async for token in self.agent_router.route_by_state(task):
+                # 根据当前状态继续处理，传递记忆上下文
+                async for token in self.agent_router.route_by_state(task, memory_context):
                     yield token
-                    
+
         except Exception as e:
             # 处理异常情况
             yield f"[ERROR]处理任务时发生错误: {str(e)}"

@@ -72,29 +72,23 @@ class TaskClassificationAgent:
         """分类任务（向后兼容方法）"""
         return await self.classification_processor.process_task_sync(task)
 
-    async def classify_task_stream(self, task):
+    async def classify_task_stream(self, task: str, memory_context: str = ""):
         """流式分类任务（主要入口）"""
-        async for token in self.classification_processor.process_task_stream(task):
+        async for token in self.classification_processor.process_task_stream(task, memory_context):
             yield token
 
-    async def handle_unrelated(self, user_input):
+    async def handle_unrelated(self, user_input, memory_context: str = ""):
         """处理无关请求（同步版本）"""
-        # 与预约无关的请求应该重新进行分类，而不是直接拒绝
         print(f"[DEBUG] 预约机器人转交的请求：{user_input}")
-        
-        # 重新进行任务分类
         result = ""
-        async for token in self.classification_processor.process_task_stream(user_input):
+        async for token in self.classification_processor.process_task_stream(user_input, memory_context):
             result += token
         return result
 
-    async def handle_unrelated_async(self, user_input):
+    async def handle_unrelated_async(self, user_input, memory_context: str = ""):
         """处理无关请求（异步流版本）"""
-        # 与预约无关的请求应该重新进行分类，而不是直接拒绝
         print(f"[DEBUG] 预约机器人转交的请求：{user_input}")
-        
-        # 重新进行任务分类
-        async for token in self.classification_processor.process_task_stream(user_input):
+        async for token in self.classification_processor.process_task_stream(user_input, memory_context):
             yield token
 
     # ===========================================

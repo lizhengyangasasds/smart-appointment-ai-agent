@@ -9,10 +9,12 @@ Database Base Module
 
 from .session_manager import SessionManager
 from .interfaces import BaseTechnicianRepository, BaseKnowledgeRepository, BaseUserBehaviorRepository
+from .exceptions import SlotTakenException
 
 __all__ = [
     'SessionManager',
     'BaseTechnicianRepository',
-    'BaseKnowledgeRepository', 
-    'BaseUserBehaviorRepository'
+    'BaseKnowledgeRepository',
+    'BaseUserBehaviorRepository',
+    'SlotTakenException',
 ]

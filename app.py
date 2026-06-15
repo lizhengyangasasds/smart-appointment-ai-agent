@@ -79,7 +79,7 @@ def create_app() -> FastAPI:
     # 添加CORS中间件
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 生产环境中应该设置具体的域名
+        allow_origins=["http://127.0.0.1:8000", "http://127.0.0.1:8001", "http://localhost:8000", "http://localhost:8001"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

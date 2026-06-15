@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from ..base.interfaces import BaseTechnicianRepository, BaseScheduleRepository
 from ..base.session_manager import SessionManager
+from ..base.exceptions import SlotTakenException
 from ..models import Technician, TechnicianSchedule
 
 
@@ -36,7 +37,7 @@ class TechnicianRepository(BaseTechnicianRepository, BaseScheduleRepository):
         Returns:
             新创建的技师ID
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             technician = Technician(name=name, gender=gender, strength=strength)
             session.add(technician)
             session.flush()
@@ -96,7 +97,7 @@ class TechnicianRepository(BaseTechnicianRepository, BaseScheduleRepository):
     def get_all_strengths(self) -> List[str]:
         """
         获取所有技师的专长列表
-        
+
         Returns:
             专长列表（去重后）
         """
@@ -115,7 +116,7 @@ class TechnicianRepository(BaseTechnicianRepository, BaseScheduleRepository):
         Returns:
             更新是否成功
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             technician = session.query(Technician).filter(
                 Technician.id == technician_id
             ).first()
@@ -139,7 +140,7 @@ class TechnicianRepository(BaseTechnicianRepository, BaseScheduleRepository):
         Returns:
             删除是否成功
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             technician = session.query(Technician).filter(
                 Technician.id == technician_id
             ).first()
@@ -151,22 +152,48 @@ class TechnicianRepository(BaseTechnicianRepository, BaseScheduleRepository):
             return True
 
     # 排班相关方法
-    def add_schedule(self, technician_id: int, start_time: datetime, end_time: datetime, 
-                    status: str, appointment_id: Optional[int] = None) -> int:
+
+    def reserve_slot(self, technician_id: int, start_time: datetime, end_time: datetime,
+                     status: str, appointment_id: Optional[int] = None) -> int:
         """
-        添加技师排班
-        
+        原子性地预约技师时间段（检查+插入在同一事务中完成）。
+
+        同一事务内完成冲突检测与插入，彻底消除并发双重预约竞态。
+        内部持有 _write_lock，确保多线程/多协程安全。
+
         Args:
             technician_id: 技师ID
             start_time: 开始时间
             end_time: 结束时间
             status: 状态 ('busy' 或 'free')
             appointment_id: 预约ID（如果是忙碌状态）
-            
+
         Returns:
             新创建的排班ID
+
+        Raises:
+            SlotTakenException: 时间段已被占用（已被其他预约占用）
         """
-        with self.session_manager.session_scope() as session:
+        import logging
+        logger = logging.getLogger(__name__)
+
+        with self.session_manager.session_scope(exclusive=True) as session:
+            if status == "busy":
+                conflict = session.query(TechnicianSchedule).filter(
+                    TechnicianSchedule.technician_id == technician_id,
+                    TechnicianSchedule.status == "busy",
+                    TechnicianSchedule.start_time < end_time,
+                    TechnicianSchedule.end_time > start_time
+                ).first()
+
+                if conflict is not None:
+                    logger.warning(
+                        f"[reserve_slot] 时间段已被占用: tech={technician_id}, "
+                        f"start={start_time}, end={end_time}, "
+                        f"conflict_id={conflict.id}"
+                    )
+                    raise SlotTakenException(technician_id, start_time, end_time)
+
             schedule = TechnicianSchedule(
                 technician_id=technician_id,
                 start_time=start_time,
@@ -176,6 +203,47 @@ class TechnicianRepository(BaseTechnicianRepository, BaseScheduleRepository):
             )
             session.add(schedule)
             session.flush()
+            logger.debug(
+                f"[reserve_slot] 预约成功: tech={technician_id}, "
+                f"schedule_id={schedule.id}, start={start_time}, end={end_time}"
+            )
+            return schedule.id
+
+    def add_schedule(self, technician_id: int, start_time: datetime, end_time: datetime,
+                    status: str, appointment_id: Optional[int] = None) -> int:
+        """
+        添加技师排班（不检查可用性，适合外部已保证唯一性的场景）。
+
+        警告：直接插入不检查冲突，可能导致双重预约。
+        预约业务请使用 reserve_slot() 方法替代。
+
+        Args:
+            technician_id: 技师ID
+            start_time: 开始时间
+            end_time: 结束时间
+            status: 状态 ('busy' 或 'free')
+            appointment_id: 预约ID（如果是忙碌状态）
+
+        Returns:
+            新创建的排班ID
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        with self.session_manager.session_scope(exclusive=True) as session:
+            schedule = TechnicianSchedule(
+                technician_id=technician_id,
+                start_time=start_time,
+                end_time=end_time,
+                status=status,
+                appointment_id=appointment_id
+            )
+            session.add(schedule)
+            session.flush()
+            logger.debug(
+                f"[add_schedule] 排班添加: tech={technician_id}, "
+                f"schedule_id={schedule.id}, start={start_time}, end={end_time}"
+            )
             return schedule.id
 
     def get_technician_schedules(self, technician_id: int, date: datetime) -> List[Dict[str, Any]]:
@@ -235,7 +303,7 @@ class TechnicianRepository(BaseTechnicianRepository, BaseScheduleRepository):
         Returns:
             更新是否成功
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             schedule = session.query(TechnicianSchedule).filter(
                 TechnicianSchedule.id == schedule_id
             ).first()
@@ -259,7 +327,7 @@ class TechnicianRepository(BaseTechnicianRepository, BaseScheduleRepository):
         Returns:
             删除是否成功
         """
-        with self.session_manager.session_scope() as session:
+        with self.session_manager.session_scope(exclusive=True) as session:
             schedule = session.query(TechnicianSchedule).filter(
                 TechnicianSchedule.id == schedule_id
             ).first()

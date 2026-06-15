@@ -162,15 +162,18 @@ class AppointmentProcessor:
         # 这里返回 False，表示信息还不完整，需要继续等待用户输入
         return False
     
-    async def handle_unrelated_request(self, user_input: str, unrelated_callback, state) -> AsyncGenerator[str, None]:
+    async def handle_unrelated_request(
+        self,
+        user_input: str,
+        unrelated_callback,
+        state,
+        memory_context: str = "",
+    ) -> AsyncGenerator[str, None]:
         """处理与预约无关的请求"""
-        # 注意：这里不重置状态，因为在调用处已经设置了状态
-        # 保持预约历史不被清空
-        
         if unrelated_callback:
             try:
                 yield "[REPLY][预约机器人]和预约信息无关，已交给归类机器人处理\n"
-                result = await unrelated_callback(user_input)
+                result = unrelated_callback(user_input, memory_context)
                 if hasattr(result, '__aiter__'):
                     async for token in result:
                         yield token
