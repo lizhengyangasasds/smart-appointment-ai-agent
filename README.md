@@ -18,6 +18,7 @@
 | **用户行为分析** | 偏好提取、模式识别、个性化回访提醒 |
 | **会话记忆系统** | 三层记忆（工作/语义/摘要）+ 自动压缩 |
 | **流式响应** | FastAPI AsyncGenerator，后端边生成边推送 |
+| **反思与学习系统** | 任务评估、失败根因分析、周期性报告、策略优化 |
 
 ---
 
@@ -28,7 +29,7 @@ Web Layer          (FastAPI + Jinja2 模板)
      ↓
 API Layer          (请求编排、响应封装)
      ↓
-Agents Layer       (TaskClassification / Appointment / Consultation / UserBehavior)
+Agents Layer       (TaskClassification / Appointment / Consultation / UserBehavior / Reflection)
      ↓
 Services Layer     (业务逻辑、Embedding、推荐算法)
      ↓
@@ -65,15 +66,18 @@ smart-appointment-ai-agent/
 │   ├── appointment_agent.py         # 预约流程控制
 │   ├── consultant_agent.py          # RAG 咨询 Agent
 │   ├── user_behavior_agent.py       # 行为分析 Agent
+│   ├── reflection_agent.py          # 反思与学习 Agent
 │   ├── task_classification/         # 意图识别、状态管理
 │   ├── appointment/                # 解析器、技师匹配器、数据库操作器
 │   ├── consultant/                  # 提示词构建、回答生成
-│   └── user_behavior/              # 模式分析、偏好管理
+│   ├── user_behavior/              # 模式分析、偏好管理
+│   └── reflection/                 # 评估器、分析器、报告生成器
 ├── api/                             # API 编排层
 │   ├── chat_handler.py              # 流式聊天处理核心
 │   ├── knowledge.py                 # 知识库 CRUD + 搜索
 │   ├── technician.py               # 技师管理接口
-│   └── user_behavior_analysis.py    # 行为分析接口
+│   ├── user_behavior_analysis.py    # 行为分析接口
+│   └── reflection_api.py           # 反思接口
 ├── services/                        # 业务逻辑层
 │   ├── knowledge_service.py         # FAISS 索引 + 知识检索
 │   ├── appointment_service.py       # 预约业务（原子性预约）
@@ -90,9 +94,14 @@ smart-appointment-ai-agent/
 │   │   ├── technician_repository.py
 │   │   ├── knowledge_repository.py
 │   │   ├── user_behavior_repository.py
-│   │   └── memory_repository.py
+│   │   ├── memory_repository.py
+│   │   └── reflection_repository.py
 │   ├── models.py                   # SQLAlchemy 数据模型
 │   └── models_memory.py            # 记忆系统数据模型
+├── scripts/                         # 工具脚本
+│   └── create_reflection_tables.py # 反思模块数据库初始化
+├── examples/                        # 示例代码
+│   └── reflection_demo.py         # 反思 Agent 使用示例
 ├── web/
 │   ├── routes.py                  # 页面路由
 │   └── templates/                  # HTML 模板
@@ -163,6 +172,29 @@ SessionSummary            摘要压缩   超过阈值时压缩历史
 
 支持按专长相似度匹配指定技师、按偏好智能推荐、按性别筛选等多个维度。
 
+### 6. 反思与学习系统
+
+```
+任务完成 → 评估器 → 分析器 → 报告器 → 洞察
+              ↓
+          反思触发条件：
+          - 成功率 < 70%
+          - 对话轮数 > 10
+          - 完成时间 > 120秒
+          - 任务失败
+```
+
+反思 Agent 提供完整的学习闭环：
+
+| 组件 | 功能 |
+|------|------|
+| **TaskEvaluator** | 评估成功率、对话轮数、完成时间、错误分类 |
+| **ReflectionAnalyzer** | 分析失败根因、发现用户模式、识别坏 case |
+| **ReflectionReporter** | 生成周期性报告、用户洞察、仪表盘数据 |
+| **ReflectionEngine** | 协调评估-分析-报告流程，提供统一接口 |
+
+支持任务后反思、周期性反思、阈值触发反思、手动触发反思四种模式。
+
 ---
 
 ## 快速启动
@@ -189,7 +221,17 @@ cp .env.example .env
 # 编辑 .env 填入 API Key 和模型配置
 ```
 
-### 2. 启动服务
+### 2. 初始化数据库
+
+```bash
+# 初始化基础数据库
+python scripts/init_db.py
+
+# 初始化反思模块数据库表（如需使用反思功能）
+python scripts/create_reflection_tables.py create
+```
+
+### 3. 启动服务
 
 ```bash
 python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
@@ -205,6 +247,8 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 
 ## 数据模型
 
+### 业务数据表
+
 | 表名 | 说明 |
 |------|------|
 | `technicians` | 技师信息（姓名、性别、专长） |
@@ -212,7 +256,21 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 | `knowledge_documents` | 知识库（内容、分类、关键词、向量嵌入） |
 | `user_behaviors` | 用户行为日志（预约/咨询类型、操作数据） |
 | `user_preferences` | 用户偏好（类型、值、置信度） |
+| `user_recommendations` | 用户推荐记录（推荐内容、发送状态） |
+
+### 会话记忆表
+
+| 表名 | 说明 |
+|------|------|
 | `conversation_messages` | 会话消息（角色、内容、轮次、压缩标记） |
 | `semantic_memories` | 语义记忆（类型、Key-Value、置信度） |
 | `session_summaries` | 会话摘要（压缩后的上下文） |
+
+### 反思学习表
+
+| 表名 | 说明 |
+|------|------|
+| `task_evaluations` | 任务评估（成功率、轮数、耗时、错误类型） |
+| `reflection_logs` | 反思日志（发现、建议、模式、坏 case） |
+| `user_feedbacks` | 用户反馈（评分、类型、内容、来源） |
 
