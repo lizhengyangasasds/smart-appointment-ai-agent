@@ -1,5 +1,8 @@
 from .base import SessionManager
-from .repositories import TechnicianRepository, KnowledgeRepository, UserBehaviorRepository
+from .repositories import (
+    TechnicianRepository, KnowledgeRepository, UserBehaviorRepository,
+    EvaluationRepository, ReflectionRepository, FeedbackRepository
+)
 from typing import Optional
 
 
@@ -37,6 +40,9 @@ class DatabaseRouter:
         self.technician_repo = TechnicianRepository(self.session_manager)
         self.knowledge_repo = KnowledgeRepository(self.session_manager)
         self.user_behavior_repo = UserBehaviorRepository(self.session_manager)
+        self.evaluation_repo = EvaluationRepository()
+        self.reflection_repo = ReflectionRepository()
+        self.feedback_repo = FeedbackRepository()
 
     @property
     def technicians(self) -> TechnicianRepository:
@@ -52,6 +58,21 @@ class DatabaseRouter:
     def user_behavior(self) -> UserBehaviorRepository:
         """获取用户行为数据仓库"""
         return self.user_behavior_repo
+
+    @property
+    def evaluation(self) -> EvaluationRepository:
+        """获取任务评估数据仓库"""
+        return self.evaluation_repo
+
+    @property
+    def reflection(self) -> ReflectionRepository:
+        """获取反思日志数据仓库"""
+        return self.reflection_repo
+
+    @property
+    def feedback(self) -> FeedbackRepository:
+        """获取用户反馈数据仓库"""
+        return self.feedback_repo
 
     def close(self):
         """关闭数据库连接"""

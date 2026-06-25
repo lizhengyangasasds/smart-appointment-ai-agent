@@ -66,3 +66,49 @@ class UserRecommendation(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     sent_at = Column(DateTime, nullable=True)
     technician = relationship("Technician")
+
+
+class TaskEvaluation(Base):
+    """任务评估表 - 记录每次任务执行的评估结果"""
+    __tablename__ = 'task_evaluations'
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String, nullable=False)  # 会话ID
+    task_type = Column(String, nullable=False)  # 'appointment', 'consultation', 'classification'
+    success = Column(Integer, default=0)  # 是否成功: 0=失败, 1=成功, 2=部分成功
+    success_rate = Column(Float, default=0.0)  # 成功率评分 0-1
+    completion_time = Column(Float, nullable=True)  # 完成耗时(秒)
+    turns_count = Column(Integer, default=0)  # 对话轮数
+    error_type = Column(String, nullable=True)  # 错误类型
+    error_message = Column(Text, nullable=True)  # 错误信息
+    action_data = Column(JSON, nullable=True)  # 任务相关数据
+    reflection_triggered = Column(Integer, default=0)  # 是否触发反思
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ReflectionLog(Base):
+    """反思日志表 - 记录反思过程和结论"""
+    __tablename__ = 'reflection_logs'
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String, nullable=False)  # 会话ID
+    evaluation_id = Column(Integer, ForeignKey('task_evaluations.id'), nullable=True)  # 关联评估
+    reflection_type = Column(String, nullable=False)  # 'post_task', 'periodic', 'threshold_triggered'
+    findings = Column(JSON, nullable=False)  # 反思发现
+    recommendations = Column(JSON, nullable=True)  # 改进建议
+    patterns_discovered = Column(JSON, nullable=True)  # 发现的模式
+    bad_cases = Column(JSON, nullable=True)  # 坏case记录
+    improvement_actions = Column(JSON, nullable=True)  # 已采取的改进措施
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class UserFeedback(Base):
+    """用户反馈表 - 记录用户的显式反馈"""
+    __tablename__ = 'user_feedbacks'
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String, nullable=False)
+    user_id = Column(String, nullable=False, default='default_user')
+    feedback_type = Column(String, nullable=False)  # 'rating', 'correction', 'complaint', 'praise'
+    rating = Column(Integer, nullable=True)  # 评分 1-5
+    content = Column(Text, nullable=True)  # 反馈内容
+    source = Column(String, default='explicit')  # 'explicit'=显式, 'implicit'=隐式
+    action_data = Column(JSON, nullable=True)  # 相关行为数据
+    created_at = Column(DateTime, default=datetime.utcnow)
