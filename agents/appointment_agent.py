@@ -1,56 +1,114 @@
 from dotenv import load_dotenv
 import uuid
+import logging
+from typing import Dict, Any, List
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from config.model_provider import create_chat_model
 from .appointment import (
-    InputParser, 
-    TechnicianFinder, 
-    AppointmentProcessor, 
-    MessageBuilder, 
+    InputParser,
+    TechnicianFinder,
+    AppointmentProcessor,
+    MessageBuilder,
     AppointmentDatabase
 )
+from .reflection import ReflectionAwareMixin
 
 load_dotenv()
 
 
-class AppointmentAgent:
+class AppointmentAgent(ReflectionAwareMixin):
     """
     预约机器人主控制器
-    
+
     职责：
     1. 初始化各个组件
     2. 管理会话状态
     3. 协调整个预约流程
+    4. 应用反思洞察优化预约决策（闭环）
     """
-    
-    def __init__(self, session_id=None, unrelated_callback=None):
+
+    def __init__(self, session_id=None, unrelated_callback=None, reflection_engine=None):
         # 基础设置
         self.session_id = session_id or str(uuid.uuid4())
         self.unrelated_callback = unrelated_callback
         self.state = None
-        
+        self.logger = logging.getLogger(__name__)
+
+        # 初始化反思感知（闭环支持）
+        ReflectionAwareMixin.__init__(self, reflection_engine=reflection_engine)
+
         # 初始化LLM
         self.llm = self._initialize_llm()
-        
+
         # 初始化组件
         self.input_parser = InputParser(self.llm)
         self.technician_finder = TechnicianFinder()
         self.message_builder = MessageBuilder()
         self.appointment_database = AppointmentDatabase()
         self.appointment_processor = AppointmentProcessor(
-            self.input_parser, 
+            self.input_parser,
             self.technician_finder,
-            self.message_builder, 
+            self.message_builder,
             self.appointment_database,
             self.llm
         )
-        
+
         # 会话管理
         self.chats_by_session_id = {}
         self.chat_history = self._get_chat_history(self.session_id)
-        
+
         # 预约状态
         self.reset()
+
+        # 反思洞察应用状态
+        self._insights_applied = False
+        self._matching_hints: Dict[str, Any] = {}
+        self._avoid_patterns: List[str] = []
+
+    def apply_insights(self, insights: Dict[str, Any]) -> None:
+        """
+        应用反思洞察到预约决策
+
+        根据反思洞察调整：
+        1. 技师匹配策略
+        2. 推荐优先级
+        3. 避免的问题模式
+        """
+        self.logger.info("应用反思洞察到预约 Agent")
+
+        # 1. 获取任务特定的洞察
+        task_insights = self.get_task_type_insights('appointment')
+
+        # 2. 提取匹配提示
+        recommendations = task_insights.get('recommendations', [])
+        self._matching_hints = {}
+
+        for rec in recommendations:
+            action = rec.get('action', {})
+            if action.get('type') == 'matching':
+                self._matching_hints = action.get('parameters', {})
+                break
+
+        # 3. 提取需要避免的模式
+        self._avoid_patterns = []
+        bad_cases = task_insights.get('bad_cases', [])
+
+        for bc in bad_cases:
+            trigger = bc.get('trigger', {})
+            if trigger.get('task_type') == 'appointment':
+                pattern_id = bc.get('case_id', bc.get('description', ''))
+                self._avoid_patterns.append(pattern_id)
+
+        # 4. 获取推荐策略配置
+        strategy_config = self.get_preferred_strategy('appointment_matching')
+        if strategy_config:
+            self.logger.info(f"应用匹配策略: {strategy_config}")
+
+        self._insights_applied = True
+        self.logger.debug(
+            f"洞察应用完成: {len(self._matching_hints)} 个匹配提示, "
+            f"{len(self._avoid_patterns)} 个避免模式"
+        )
 
     def _initialize_llm(self):
         """初始化通用聊天模型"""
@@ -152,3 +210,126 @@ class AppointmentAgent:
         if self.state:
             from config.constants import StateEnum
             self.state.value = StateEnum.CLASSIFY
+
+    def validate_technician_recommendation(
+        self,
+        technician: Dict[str, Any],
+        user_preference: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        使用反思洞察验证技师推荐
+
+        Args:
+            technician: 推荐的技师信息
+            user_preference: 用户偏好
+
+        Returns:
+            验证结果 {valid, warnings, adjustments}
+        """
+        # 构建动作上下文
+        action = {
+            'type': 'technician_recommendation',
+            'technician_id': technician.get('id'),
+            'technician_gender': technician.get('gender'),
+            'technician_expertise': technician.get('expertise', [])
+        }
+
+        context = {
+            'user_preference': user_preference,
+            'appointment_history': self.appointment_history
+        }
+
+        # 使用基类方法验证
+        return self.validate_action_against_insights(action, context)
+
+    def adjust_matching_strategy(self, base_candidates: List[Dict]) -> List[Dict]:
+        """
+        根据反思洞察调整匹配策略
+
+        Args:
+            base_candidates: 基础候选技师列表
+
+        Returns:
+            调整后的候选列表
+        """
+        if not self._insights_applied:
+            self.apply_insights(self.get_insights())
+
+        # 如果有避免模式，检查并过滤候选
+        adjusted = []
+        for candidate in base_candidates:
+            if self._is_pattern_avoided(candidate):
+                self.logger.debug(f"跳过避免的技师: {candidate.get('name')}")
+                continue
+            adjusted.append(candidate)
+
+        # 如果全部被过滤，返回原列表
+        if not adjusted:
+            return base_candidates
+
+        # 应用匹配提示调整排序
+        if self._matching_hints:
+            adjusted = self._apply_matching_hints(adjusted)
+
+        return adjusted
+
+    def _is_pattern_avoided(self, candidate: Dict) -> bool:
+        """检查候选是否匹配避免模式"""
+        for pattern in self._avoid_patterns:
+            # 简单的模式匹配逻辑
+            if 'gender_mismatch' in pattern.lower():
+                if self.appointment_history.get('gender') == 'female' and candidate.get('gender') == 'male':
+                    return True
+            if 'overbooked' in pattern.lower():
+                if candidate.get('booking_count', 0) > 10:
+                    return True
+
+        return False
+
+    def _apply_matching_hints(self, candidates: List[Dict]) -> List[Dict]:
+        """应用匹配提示调整排序"""
+        hints = self._matching_hints
+
+        if not hints:
+            return candidates
+
+        # 根据提示调整权重
+        def score_candidate(c: Dict) -> float:
+            score = c.get('similarity_score', 0.5)
+
+            # 应用自定义权重
+            if 'similarity_weight' in hints:
+                score *= hints['similarity_weight']
+
+            if 'experience_weight' in hints:
+                experience = c.get('experience_years', 1)
+                score += hints['experience_weight'] * experience
+
+            return score
+
+        return sorted(candidates, key=score_candidate, reverse=True)
+
+    def get_reflection_context_for_prompt(self) -> str:
+        """
+        获取反思上下文用于提示词
+
+        Returns:
+            反思上下文文本
+        """
+        insights = self.get_insights()
+
+        parts = []
+
+        # 添加洞察摘要
+        if insights.get('summary'):
+            parts.append(insights['summary'])
+
+        # 添加高优先级建议
+        recommendations = insights.get('actionable_recommendations', [])
+        high_priority = [r for r in recommendations if r.get('priority') == 'high']
+
+        if high_priority:
+            tips = [r.get('title', '') for r in high_priority[:2]]
+            parts.append(f"建议: {'; '.join(tips)}")
+
+        return '\n'.join(parts) if parts else ""
