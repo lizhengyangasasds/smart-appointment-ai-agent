@@ -71,7 +71,15 @@ smart-appointment-ai-agent/
 │   ├── appointment/                # 解析器、技师匹配器、数据库操作器
 │   ├── consultant/                  # 提示词构建、回答生成
 │   ├── user_behavior/              # 模式分析、偏好管理
-│   └── reflection/                 # 评估器、分析器、报告生成器
+│   └── reflection/                 # 评估器、分析器、报告生成器、闭环组件
+│       ├── evaluator.py           # 任务评估器
+│       ├── analyzer.py            # 反思分析器
+│       ├── reporter.py            # 报告生成器
+│       ├── engine.py              # 反思引擎
+│       ├── reflection_aware.py   # 反思感知混入类（闭环）
+│       ├── strategy_updater.py    # 策略更新器（闭环）
+│       ├── closed_loop_evaluator.py # 闭环效果验证器（闭环）
+│       └── context_provider.py    # 反思上下文提供者（闭环）
 ├── api/                             # API 编排层
 │   ├── chat_handler.py              # 流式聊天处理核心
 │   ├── knowledge.py                 # 知识库 CRUD + 搜索
@@ -102,6 +110,8 @@ smart-appointment-ai-agent/
 │   └── create_reflection_tables.py # 反思模块数据库初始化
 ├── examples/                        # 示例代码
 │   └── reflection_demo.py         # 反思 Agent 使用示例
+├── tests/                          # 测试代码
+│   └── test_reflection_closed_loop.py  # 闭环组件单元测试
 ├── web/
 │   ├── routes.py                  # 页面路由
 │   └── templates/                  # HTML 模板
@@ -172,16 +182,18 @@ SessionSummary            摘要压缩   超过阈值时压缩历史
 
 支持按专长相似度匹配指定技师、按偏好智能推荐、按性别筛选等多个维度。
 
-### 6. 反思与学习系统
+### 6. 反思与学习系统（闭环）
 
 ```
 任务完成 → 评估器 → 分析器 → 报告器 → 洞察
-              ↓
-          反思触发条件：
-          - 成功率 < 70%
-          - 对话轮数 > 10
-          - 完成时间 > 120秒
-          - 任务失败
+              ↓                              ↓
+          反思触发条件                  策略更新器
+          - 成功率 < 70%                ↓
+          - 对话轮数 > 10               策略激活
+          - 完成时间 > 120秒             ↓
+          - 任务失败                 闭环验证器
+                                      ↓
+                               Agent 应用洞察（闭环）
 ```
 
 反思 Agent 提供完整的学习闭环：
@@ -192,6 +204,33 @@ SessionSummary            摘要压缩   超过阈值时压缩历史
 | **ReflectionAnalyzer** | 分析失败根因、发现用户模式、识别坏 case |
 | **ReflectionReporter** | 生成周期性报告、用户洞察、仪表盘数据 |
 | **ReflectionEngine** | 协调评估-分析-报告流程，提供统一接口 |
+
+#### 闭环组件
+
+| 组件 | 功能 |
+|------|------|
+| **ReflectionAwareMixin** | 反思感知混入类，让 Agent 可访问和应用洞察 |
+| **StrategyUpdater** | 策略更新器，基于洞察动态调整 Agent 策略 |
+| **ClosedLoopEvaluator** | 闭环效果验证器，验证策略改进效果 |
+| **ReflectionContextProvider** | 反思上下文提供者，为 Agent 提供结构化上下文 |
+
+#### 闭环流程
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     反思闭环系统                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   评估 → 分析 → 生成洞察 → 策略更新 → 策略激活                     │
+│                                    ↓                             │
+│                              闭环验证器                            │
+│                                    ↓                             │
+│                        Agent 应用洞察（预约/咨询）                  │
+│                                    ↓                             │
+│                              新一轮评估                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 支持任务后反思、周期性反思、阈值触发反思、手动触发反思四种模式。
 
