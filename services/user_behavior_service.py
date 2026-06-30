@@ -188,3 +188,60 @@ class UserBehaviorService:
             "hour_distribution": dict(hour_counter),
             "weekday_distribution": dict(weekday_counter)
         }
+
+    def get_consultation_behaviors(
+        self,
+        user_id: str = None,
+        days_back: int = 30,
+        min_score: float = None,
+        max_score: float = None
+    ) -> List[Dict[str, Any]]:
+        """获取咨询行为记录（支持过滤条件）"""
+        try:
+            return self.user_behavior_repo.get_consultation_behaviors(
+                user_id=user_id,
+                days_back=days_back,
+                min_score=min_score,
+                max_score=max_score
+            )
+        except Exception as e:
+            logger.error(f"获取咨询行为记录失败：{e}")
+            return []
+
+    def get_consultation_statistics(self, days_back: int = 30) -> Dict[str, Any]:
+        """获取咨询统计信息"""
+        try:
+            return self.user_behavior_repo.get_consultation_statistics(days_back=days_back)
+        except Exception as e:
+            logger.error(f"获取咨询统计信息失败：{e}")
+            return {}
+
+    def get_high_score_low_quality_consultations(
+        self,
+        score_threshold: float = 0.8,
+        days_back: int = 30
+    ) -> List[Dict[str, Any]]:
+        """获取高分但可能低质量的咨询记录"""
+        try:
+            return self.user_behavior_repo.get_high_score_low_quality_consultations(
+                score_threshold=score_threshold,
+                days_back=days_back
+            )
+        except Exception as e:
+            logger.error(f"获取高分低质量咨询失败：{e}")
+            return []
+
+    def get_user_consultation_history(
+        self,
+        user_id: str,
+        days_back: int = 30
+    ) -> List[Dict[str, Any]]:
+        """获取指定用户的咨询历史"""
+        try:
+            return self.user_behavior_repo.get_user_consultation_history(
+                user_id=user_id,
+                days_back=days_back
+            )
+        except Exception as e:
+            logger.error(f"获取用户咨询历史失败：{e}")
+            return []
