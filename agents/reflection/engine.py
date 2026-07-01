@@ -74,7 +74,8 @@ class ReflectionEngine:
         self.context_provider = ReflectionContextProvider(
             reflection_engine=self,
             strategy_updater=self.strategy_updater,
-            closed_loop_evaluator=self.closed_loop_evaluator
+            closed_loop_evaluator=self.closed_loop_evaluator,
+            llm=llm  # 传递 LLM 给 ContextProvider
         )
         # ===================================
 
@@ -626,6 +627,7 @@ class ReflectionEngine:
         Returns:
             反思上下文
         """
+        from .context_provider import ContextFormat
         context_format = ContextFormat(format)
 
         context = self.context_provider.get_context_for_agent(
@@ -642,7 +644,13 @@ class ReflectionEngine:
             'confidence': context.confidence,
             'recent_insights': context.recent_insights,
             'recommendations': context.recommendations[:3],
-            'bad_cases': context.bad_cases[:2]
+            'bad_cases': context.bad_cases[:2],
+            # Agent 生成的内容
+            'agent_guidance': context.agent_guidance,
+            'do_list': context.do_list,
+            'avoid_list': context.avoid_list,
+            'specific_suggestions': context.specific_suggestions,
+            'generation_method': context.generation_method
         }
 
     def inject_insights_into_prompt(
