@@ -25,6 +25,7 @@ from .recommendation_service import RecommendationService
 from .conversation_memory_service import ConversationMemoryService, TokenCounter
 from .semantic_memory_service import SemanticMemoryService, SemanticExtractor
 from .memory_manager import MemoryManager
+from .reflection_service import ReflectionService, get_reflection_service
 
 __all__ = [
     'embed_input',
@@ -41,4 +42,6 @@ __all__ = [
     'SemanticMemoryService',
     'SemanticExtractor',
     'MemoryManager',
+    'ReflectionService',
+    'get_reflection_service',
 ]

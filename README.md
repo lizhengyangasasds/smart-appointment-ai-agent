@@ -19,6 +19,7 @@
 | **会话记忆系统** | 三层记忆（工作/语义/摘要）+ 自动压缩 |
 | **流式响应** | FastAPI AsyncGenerator，后端边生成边推送 |
 | **反思与学习系统** | 任务评估、失败根因分析、周期性报告、策略优化 |
+| **增强型咨询记录** | RAG 评估闭环，记录文档分数/回答内容/用户关联 |
 
 ---
 
@@ -111,7 +112,14 @@ smart-appointment-ai-agent/
 ├── examples/                        # 示例代码
 │   └── reflection_demo.py         # 反思 Agent 使用示例
 ├── tests/                          # 测试代码
-│   └── test_reflection_closed_loop.py  # 闭环组件单元测试
+│   ├── test_reflection_closed_loop.py  # 闭环组件单元测试
+│   ├── test_task_evaluator.py         # 任务评估逻辑测试
+│   ├── test_strategy_updater.py        # 策略生成测试
+│   ├── test_closed_loop_evaluator.py  # 闭环效果计算测试
+│   ├── test_error_classification.py    # 错误分类测试
+│   ├── test_reflection_integration.py  # 端到端集成测试
+│   ├── test_effectiveness.py           # 效果验证测试
+│   └── conftest.py                    # Pytest 配置
 ├── web/
 │   ├── routes.py                  # 页面路由
 │   └── templates/                  # HTML 模板
@@ -233,6 +241,48 @@ SessionSummary            摘要压缩   超过阈值时压缩历史
 ```
 
 支持任务后反思、周期性反思、阈值触发反思、手动触发反思四种模式。
+
+### 7. 增强型咨询记录与 RAG 评估闭环
+
+为了支持 RAG 系统的持续优化，系统记录了丰富的咨询行为数据：
+
+```python
+action_data = {
+    'question': '你们的营业时间是几点到几点？',
+    'knowledge_docs_used': 3,
+    'doc_scores': [0.923, 0.856, 0.812],  # 每条文档的相似度分数
+    'doc_ids': [1, 5, 8],                  # 文档ID列表
+    'max_score': 0.923,                     # 最高分
+    'avg_score': 0.864,                     # 平均分
+    'categories': ['服务信息', '门店信息'],  # 文档分类
+    'user_id': 'user123',                   # 用户ID
+    'response_content': '我们的营业时间是...',  # 回答内容
+    'response_length': 128,                  # 回答长度
+    'timestamp': '2026-06-30 20:30:00'
+}
+```
+
+#### 可用于分析的维度
+
+| 分析维度 | 数据字段 | 说明 |
+|---------|---------|------|
+| RAG 质量分析 | `doc_scores`, `max_score` | 分析"高分但答错"的情况 |
+| 用户行为分析 | `user_id`, `session_id` | 用户级别的行为追踪 |
+| 生成质量评估 | `response_content`, `response_length` | 端到端回答质量评估 |
+| 检索效果分析 | `doc_ids`, `categories` | 分析哪些文档被命中 |
+
+#### 查询接口
+
+```python
+# 获取高分但可能低质量的案例（用于分析 RAG 问题）
+service.get_high_score_low_quality_consultations(score_threshold=0.8)
+
+# 获取咨询统计信息
+service.get_consultation_statistics(days_back=30)
+
+# 获取用户咨询历史
+service.get_user_consultation_history(user_id='user123')
+```
 
 ---
 

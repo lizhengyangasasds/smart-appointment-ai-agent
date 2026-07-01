@@ -2,19 +2,156 @@
 反思分析器 - 分析任务执行结果，发现模式和坏case
 
 核心功能：
-1. 分析失败任务的根因
+1. 分析失败任务的根因（Agent 驱动）
 2. 发现用户行为模式
 3. 识别坏case
 4. 生成改进建议
+
+Agent 架构：
+- 使用 LLM 进行深度根因分析
+- 保留规则引擎作为快速 fallback
+- 混合模式：简单问题用规则，复杂问题用 LLM
 """
 
-from typing import Dict, Any, List, Optional
+import json
+from typing import Dict, Any, List, Optional, Union
 from collections import Counter
+from datetime import datetime
 import logging
 
 
+# ==================== Agent Prompt 模板 ====================
+
+ROOT_CAUSE_ANALYSIS_PROMPT = """你是一个专业的系统分析师，专注于分析 AI 对话系统的失败案例。
+
+请分析以下按摩房预约系统的失败任务记录，找出根本原因并给出改进建议。
+
+失败任务记录：
+{failed_tasks}
+
+系统上下文：
+- 分析时间范围：{days}天
+- 任务类型：{task_type}
+- 总失败数：{total_failed}
+
+分析要求：
+1. 这些失败任务之间有什么共同模式？
+2. 根本原因是什么？（不要只看表面错误类型，要深入分析）
+3. 失败的原因链是什么？（如：用户行为 → 系统响应 → 失败）
+4. 如果你是系统设计者，会从哪些方面改进？
+5. 给出3-5个具体的、可执行的改进建议。
+
+返回JSON格式：
+{{
+    "patterns": [
+        {{
+            "type": "模式类型",
+            "description": "模式描述",
+            "confidence": 0.0-1.0,
+            "evidence": ["支持证据1", "支持证据2"]
+        }}
+    ],
+    "root_causes": [
+        {{
+            "cause": "原因描述",
+            "confidence": 0.0-1.0,
+            "impact": "high/medium/low",
+            "suggestion": "具体改进建议",
+            "reasoning": "推理过程"
+        }}
+    ],
+    "recommendations": [
+        {{
+            "priority": "high/medium/low",
+            "action": "具体行动描述",
+            "expected_impact": "预期改进效果",
+            "implementation_hint": "实现提示"
+        }}
+    ],
+    "summary": "总结分析结论"
+}}
+"""
+
+USER_PATTERN_DISCOVERY_PROMPT = """你是一个用户行为分析师。请分析以下用户行为数据，发现用户模式和偏好。
+
+用户行为数据：
+{user_data}
+
+分析要求：
+1. 用户的主要行为模式是什么？
+2. 用户偏好有什么特点？
+3. 哪些因素会影响用户的预约决策？
+4. 用户在什么情况下容易放弃？
+5. 如何个性化优化用户体验？
+
+返回JSON格式：
+{{
+    "patterns": [
+        {{
+            "type": "行为模式类型",
+            "description": "模式描述",
+            "confidence": 0.0-1.0,
+            "frequency": "出现频率"
+        }}
+    ],
+    "preferences": {{
+        "time_preference": "时间偏好描述",
+        "technician_preference": "技师偏好描述",
+        "service_preference": "服务偏好描述"
+    }},
+    "pain_points": ["用户痛点列表"],
+    "personalization_suggestions": ["个性化建议列表"],
+    "summary": "总结分析结论"
+}}
+"""
+
+BAD_CASE_DEEP_ANALYSIS_PROMPT = """你是一个质量保证专家。请深入分析以下坏case，找出问题的本质并提出解决方案。
+
+坏case记录：
+{bad_cases}
+
+坏case上下文：
+- 时间范围：{days}天
+- 总数：{total_cases}
+
+分析要求：
+1. 这些坏case的根本原因是什么？
+2. 它们之间有什么共同点？
+3. 如何从系统层面预防这类问题？
+4. 如果要设计一个规则来避免这类问题，应该怎么做？
+5. 给出具体的预防策略。
+
+返回JSON格式：
+{{
+    "root_cause_analysis": {{
+        "primary_cause": "主要原因",
+        "secondary_causes": ["次要原因列表"],
+        "trigger_conditions": ["触发条件列表"],
+        "confidence": 0.0-1.0
+    }},
+    "prevention_strategies": [
+        {{
+            "strategy": "预防策略描述",
+            "trigger": "何时触发",
+            "implementation": "如何实现",
+            "effectiveness": "预期效果"
+        }}
+    ],
+    "typical_cases": [
+        {{
+            "description": "典型案例描述",
+            "category": "问题类别",
+            "fix": "修复建议"
+        }}
+    ],
+    "system_improvements": ["系统级改进建议"],
+    "summary": "总结分析结论"
+}}
+"""
+
+
 class ReflectionAnalyzer:
-    """反思分析器"""
+    """反思分析器（Agent 驱动版）"""
 
     def __init__(self, evaluation_repo=None, reflection_repo=None, llm=None):
         self.evaluation_repo = evaluation_repo
@@ -22,9 +159,21 @@ class ReflectionAnalyzer:
         self.llm = llm
         self.logger = logging.getLogger(__name__)
 
+        # Agent 配置
+        self._agent_config = {
+            'use_llm_for_complex_cases': True,  # 复杂案例使用 LLM
+            'min_samples_for_llm': 5,             # LLM 分析最小样本量
+            'fallback_to_rules': True,            # LLM 失败时 fallback 到规则
+            'cache_llm_results': True,            # 缓存 LLM 结果
+            'llm_cache_ttl': 3600,               # 缓存 TTL（秒）
+        }
+
+        # LLM 结果缓存
+        self._llm_cache: Dict[str, Dict[str, Any]] = {}
+
     def analyze_failed_tasks(self, task_type: str = None, days: int = 7) -> Dict[str, Any]:
         """
-        分析失败任务，找出根因
+        分析失败任务，找出根因（Agent 驱动）
 
         Args:
             task_type: 任务类型（可选）
@@ -49,27 +198,204 @@ class ReflectionAnalyzer:
                 "summary": "没有失败任务记录"
             }
 
+        # 检查是否应该使用 LLM
+        should_use_llm = (
+            self._agent_config['use_llm_for_complex_cases']
+            and len(failed_evaluations) >= self._agent_config['min_samples_for_llm']
+            and self.llm is not None
+        )
+
+        if should_use_llm:
+            # 使用 Agent 进行深度分析
+            return self._analyze_with_agent(failed_evaluations, task_type, days)
+        else:
+            # 使用规则引擎分析
+            return self._analyze_with_rules(failed_evaluations, task_type, days)
+
+    def _analyze_with_agent(
+        self,
+        evaluations: List[Dict],
+        task_type: Optional[str],
+        days: int
+    ) -> Dict[str, Any]:
+        """
+        使用 Agent（LLM）进行深度根因分析
+
+        Args:
+            evaluations: 失败评估记录
+            task_type: 任务类型
+            days: 分析天数
+
+        Returns:
+            Agent 分析结果
+        """
+        self.logger.info(f"使用 Agent 分析 {len(evaluations)} 个失败案例")
+
+        # 检查缓存
+        cache_key = f"root_cause_{task_type}_{days}_{len(evaluations)}"
+        if self._agent_config['cache_llm_results'] and cache_key in self._llm_cache:
+            cached = self._llm_cache[cache_key]
+            cache_age = (datetime.now() - cached.get('_cached_at', datetime.min)).seconds
+            if cache_age < self._agent_config['llm_cache_ttl']:
+                self.logger.info(f"使用缓存的分析结果，缓存年龄: {cache_age}秒")
+                return cached
+
+        try:
+            # 准备数据
+            failed_tasks = self._prepare_failed_tasks_data(evaluations)
+
+            # 构建 Prompt
+            prompt = ROOT_CAUSE_ANALYSIS_PROMPT.format(
+                failed_tasks=json.dumps(failed_tasks, ensure_ascii=False, indent=2),
+                days=days,
+                task_type=task_type or "all",
+                total_failed=len(evaluations)
+            )
+
+            # 调用 LLM
+            import asyncio
+            response = asyncio.run(self._call_llm(prompt))
+
+            # 解析结果
+            if response:
+                result = json.loads(response)
+                result['_analysis_method'] = 'agent'
+                result['_total_failed'] = len(evaluations)
+
+                # 补充统计数据
+                error_types = Counter(e.get('error_type') for e in evaluations)
+                result['error_type_distribution'] = dict(error_types)
+
+                # 缓存结果
+                if self._agent_config['cache_llm_results']:
+                    result['_cached_at'] = datetime.now()
+                    self._llm_cache[cache_key] = result
+
+                return result
+            else:
+                # LLM 调用失败，fallback 到规则
+                self.logger.warning("LLM 调用失败，fallback 到规则引擎")
+                return self._analyze_with_rules(evaluations, task_type, days)
+
+        except json.JSONDecodeError as e:
+            self.logger.error(f"LLM 返回格式错误: {e}")
+            return self._analyze_with_rules(evaluations, task_type, days)
+        except Exception as e:
+            self.logger.error(f"Agent 分析失败: {e}")
+            if self._agent_config['fallback_to_rules']:
+                return self._analyze_with_rules(evaluations, task_type, days)
+            else:
+                return {"error": str(e), "_analysis_method": "agent_failed"}
+
+    async def _call_llm(self, prompt: str, temperature: float = 0.3) -> Optional[str]:
+        """
+        调用 LLM
+
+        Args:
+            prompt: 提示词
+            temperature: 温度参数
+
+        Returns:
+            LLM 响应内容
+        """
+        if not self.llm:
+            return None
+
+        try:
+            # 使用 LangChain 或直接调用
+            if hasattr(self.llm, 'ainvoke'):
+                # LangChain 异步调用
+                response = await self.llm.ainvoke(prompt)
+                return response.content if hasattr(response, 'content') else str(response)
+            elif hasattr(self.llm, 'invoke'):
+                # LangChain 同步调用
+                response = self.llm.invoke(prompt)
+                return response.content if hasattr(response, 'content') else str(response)
+            else:
+                # 原始 OpenAI API
+                response = await self.llm.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "你是一个专业的系统分析师。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=temperature,
+                    response_format={"type": "json_object"}
+                )
+                return response.choices[0].message.content
+        except Exception as e:
+            self.logger.error(f"LLM 调用异常: {e}")
+            return None
+
+    def _prepare_failed_tasks_data(self, evaluations: List[Dict]) -> List[Dict[str, Any]]:
+        """
+        准备失败任务数据（限制 token 数量）
+
+        Args:
+            evaluations: 原始评估记录
+
+        Returns:
+            精简后的数据
+        """
+        # 限制数量，避免 token 过多
+        max_samples = 30
+        samples = evaluations[-max_samples:] if len(evaluations) > max_samples else evaluations
+
+        prepared = []
+        for e in samples:
+            prepared.append({
+                'session_id': e.get('session_id', '')[:8],
+                'task_type': e.get('task_type', ''),
+                'success_rate': e.get('success_rate', 0),
+                'turns_count': e.get('turns_count', 0),
+                'completion_time': e.get('completion_time', 0),
+                'error_type': e.get('error_type', ''),
+                'error_message': e.get('error_message', ''),
+                'created_at': e.get('created_at', ''),
+                'action_data': e.get('action_data', {})
+            })
+
+        return prepared
+
+    def _analyze_with_rules(
+        self,
+        evaluations: List[Dict],
+        task_type: Optional[str],
+        days: int
+    ) -> Dict[str, Any]:
+        """
+        使用规则引擎分析（fallback 模式）
+
+        Args:
+            evaluations: 失败评估记录
+            task_type: 任务类型
+            days: 分析天数
+
+        Returns:
+            规则引擎分析结果
+        """
         # 统计错误类型分布
-        error_types = Counter(e.get('error_type') for e in failed_evaluations)
+        error_types = Counter(e.get('error_type') for e in evaluations)
         error_type_patterns = self._analyze_error_patterns(list(error_types.keys()))
 
         # 分析失败模式
-        failure_patterns = self._identify_failure_patterns(failed_evaluations)
+        failure_patterns = self._identify_failure_patterns(evaluations)
 
         # 生成根因分析
-        root_causes = self._generate_root_causes(error_types, failed_evaluations)
+        root_causes = self._generate_root_causes(error_types, evaluations)
 
         return {
-            "total_failed": len(failed_evaluations),
+            "total_failed": len(evaluations),
             "error_type_distribution": dict(error_types),
             "patterns": failure_patterns,
             "root_causes": root_causes,
-            "recommendations": self._generate_recommendations(root_causes, failure_patterns)
+            "recommendations": self._generate_recommendations(root_causes, failure_patterns),
+            "_analysis_method": "rules"
         }
 
     def discover_user_patterns(self, user_id: str = "default_user", days: int = 30) -> Dict[str, Any]:
         """
-        发现用户行为模式
+        发现用户行为模式（Agent 驱动）
 
         Args:
             user_id: 用户ID
@@ -84,6 +410,90 @@ class ReflectionAnalyzer:
         # 获取用户相关的评估记录
         evaluations = self.evaluation_repo.get_recent_evaluations(days=days)
 
+        if not evaluations:
+            return {
+                "total_sessions": 0,
+                "task_type_distribution": {},
+                "avg_turns": 0,
+                "insights": [],
+                "summary": "暂无用户行为数据"
+            }
+
+        # 检查是否应该使用 LLM
+        should_use_llm = (
+            self._agent_config['use_llm_for_complex_cases']
+            and len(evaluations) >= self._agent_config['min_samples_for_llm']
+            and self.llm is not None
+        )
+
+        if should_use_llm:
+            return self._discover_patterns_with_agent(evaluations, user_id, days)
+        else:
+            return self._discover_patterns_with_rules(evaluations, days)
+
+    def _discover_patterns_with_agent(
+        self,
+        evaluations: List[Dict],
+        user_id: str,
+        days: int
+    ) -> Dict[str, Any]:
+        """
+        使用 Agent 发现用户模式
+
+        Args:
+            evaluations: 评估记录
+            user_id: 用户ID
+            days: 分析天数
+
+        Returns:
+            Agent 分析结果
+        """
+        self.logger.info(f"使用 Agent 发现用户模式，分析 {len(evaluations)} 条记录")
+
+        # 检查缓存
+        cache_key = f"user_patterns_{user_id}_{days}_{len(evaluations)}"
+        if self._agent_config['cache_llm_results'] and cache_key in self._llm_cache:
+            cached = self._llm_cache[cache_key]
+            cache_age = (datetime.now() - cached.get('_cached_at', datetime.min)).seconds
+            if cache_age < self._agent_config['llm_cache_ttl']:
+                return cached
+
+        try:
+            # 准备数据
+            user_data = self._prepare_user_pattern_data(evaluations)
+
+            # 构建 Prompt
+            prompt = USER_PATTERN_DISCOVERY_PROMPT.format(
+                user_data=json.dumps(user_data, ensure_ascii=False, indent=2)
+            )
+
+            # 调用 LLM
+            response = self._sync_call_llm(prompt)
+
+            if response:
+                result = json.loads(response)
+                result['_analysis_method'] = 'agent'
+
+                # 补充统计数据
+                result['total_sessions'] = len(set(e.get('session_id') for e in evaluations))
+                result['task_type_distribution'] = dict(Counter(e.get('task_type') for e in evaluations))
+                result['avg_turns'] = round(sum(e.get('turns_count', 0) for e in evaluations) / len(evaluations), 2)
+
+                # 缓存
+                if self._agent_config['cache_llm_results']:
+                    result['_cached_at'] = datetime.now()
+                    self._llm_cache[cache_key] = result
+
+                return result
+            else:
+                return self._discover_patterns_with_rules(evaluations, days)
+
+        except Exception as e:
+            self.logger.error(f"Agent 用户模式分析失败: {e}")
+            return self._discover_patterns_with_rules(evaluations, days)
+
+    def _prepare_user_pattern_data(self, evaluations: List[Dict]) -> Dict[str, Any]:
+        """准备用户模式数据"""
         # 统计任务类型分布
         task_types = Counter(e.get('task_type') for e in evaluations)
 
@@ -100,7 +510,35 @@ class ReflectionAnalyzer:
         turns_distribution = [e.get('turns_count', 0) for e in evaluations]
         avg_turns = sum(turns_distribution) / len(turns_distribution) if turns_distribution else 0
 
-        # 发现时间模式
+        # 分析时间模式
+        time_patterns = self._analyze_time_patterns(evaluations)
+
+        return {
+            "total_interactions": len(evaluations),
+            "task_type_distribution": dict(task_types),
+            "success_rate_trend": success_rates[-20:],
+            "avg_turns": round(avg_turns, 2),
+            "turns_distribution": {
+                "min": min(turns_distribution) if turns_distribution else 0,
+                "max": max(turns_distribution) if turns_distribution else 0,
+                "avg": round(avg_turns, 2)
+            },
+            "time_patterns": time_patterns
+        }
+
+    def _discover_patterns_with_rules(self, evaluations: List[Dict], days: int) -> Dict[str, Any]:
+        """使用规则发现用户模式"""
+        task_types = Counter(e.get('task_type') for e in evaluations)
+        success_rates = []
+        for eval_data in evaluations:
+            success_rates.append({
+                'date': eval_data.get('created_at', '')[:10],
+                'success_rate': eval_data.get('success_rate', 0),
+                'task_type': eval_data.get('task_type')
+            })
+
+        turns_distribution = [e.get('turns_count', 0) for e in evaluations]
+        avg_turns = sum(turns_distribution) / len(turns_distribution) if turns_distribution else 0
         time_patterns = self._analyze_time_patterns(evaluations)
 
         return {
@@ -109,12 +547,34 @@ class ReflectionAnalyzer:
             "avg_turns": round(avg_turns, 2),
             "success_rate_trend": success_rates[-10:] if len(success_rates) > 10 else success_rates,
             "time_patterns": time_patterns,
-            "insights": self._generate_pattern_insights(task_types, avg_turns, time_patterns)
+            "insights": self._generate_pattern_insights(task_types, avg_turns, time_patterns),
+            "_analysis_method": "rules"
         }
+
+    def _sync_call_llm(self, prompt: str, temperature: float = 0.3) -> Optional[str]:
+        """同步调用 LLM"""
+        import asyncio
+
+        async def _async_call():
+            return await self._call_llm(prompt, temperature)
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果已经在事件循环中，创建新任务
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, _async_call())
+                    return future.result(timeout=30)
+            else:
+                return asyncio.run(_async_call())
+        except Exception as e:
+            self.logger.error(f"同步 LLM 调用失败: {e}")
+            return None
 
     def analyze_bad_cases(self, days: int = 30) -> Dict[str, Any]:
         """
-        分析坏case
+        分析坏case（Agent 驱动）
 
         Args:
             days: 分析时间范围
@@ -134,17 +594,104 @@ class ReflectionAnalyzer:
                 "summary": "没有记录的坏case"
             }
 
-        # 分类坏case类型
-        case_categories = Counter(bc.get('category', 'unknown') for bc in bad_cases)
+        # 检查是否应该使用 LLM
+        should_use_llm = (
+            self._agent_config['use_llm_for_complex_cases']
+            and len(bad_cases) >= 3
+            and self.llm is not None
+        )
 
-        # 分析典型坏case
+        if should_use_llm:
+            return self._analyze_bad_cases_with_agent(bad_cases, days)
+        else:
+            return self._analyze_bad_cases_with_rules(bad_cases, days)
+
+    def _analyze_bad_cases_with_agent(
+        self,
+        bad_cases: List[Dict],
+        days: int
+    ) -> Dict[str, Any]:
+        """
+        使用 Agent 分析坏case
+
+        Args:
+            bad_cases: 坏case 列表
+            days: 分析天数
+
+        Returns:
+            Agent 分析结果
+        """
+        self.logger.info(f"使用 Agent 分析 {len(bad_cases)} 个坏case")
+
+        # 检查缓存
+        cache_key = f"bad_cases_{days}_{len(bad_cases)}"
+        if self._agent_config['cache_llm_results'] and cache_key in self._llm_cache:
+            cached = self._llm_cache[cache_key]
+            cache_age = (datetime.now() - cached.get('_cached_at', datetime.min)).seconds
+            if cache_age < self._agent_config['llm_cache_ttl']:
+                return cached
+
+        try:
+            # 准备数据
+            prepared_cases = self._prepare_bad_cases_data(bad_cases)
+
+            # 构建 Prompt
+            prompt = BAD_CASE_DEEP_ANALYSIS_PROMPT.format(
+                bad_cases=json.dumps(prepared_cases, ensure_ascii=False, indent=2),
+                days=days,
+                total_cases=len(bad_cases)
+            )
+
+            # 调用 LLM
+            response = self._sync_call_llm(prompt)
+
+            if response:
+                result = json.loads(response)
+                result['total_cases'] = len(bad_cases)
+                result['_analysis_method'] = 'agent'
+
+                # 缓存
+                if self._agent_config['cache_llm_results']:
+                    result['_cached_at'] = datetime.now()
+                    self._llm_cache[cache_key] = result
+
+                return result
+            else:
+                return self._analyze_bad_cases_with_rules(bad_cases, days)
+
+        except Exception as e:
+            self.logger.error(f"Agent 坏case分析失败: {e}")
+            return self._analyze_bad_cases_with_rules(bad_cases, days)
+
+    def _prepare_bad_cases_data(self, bad_cases: List[Dict]) -> List[Dict[str, Any]]:
+        """准备坏case数据"""
+        prepared = []
+        for bc in bad_cases[:20]:  # 限制数量
+            prepared.append({
+                'description': bc.get('description', ''),
+                'category': bc.get('category', ''),
+                'task_type': bc.get('task_type', ''),
+                'trigger': bc.get('trigger', {}),
+                'suggested_fix': bc.get('suggested_fix', {}),
+                'created_at': bc.get('created_at', '')
+            })
+        return prepared
+
+    def _analyze_bad_cases_with_rules(
+        self,
+        bad_cases: List[Dict],
+        days: int
+    ) -> Dict[str, Any]:
+        """使用规则分析坏case"""
+        case_categories = Counter(bc.get('category', 'unknown') for bc in bad_cases)
         typical_cases = self._analyze_typical_bad_cases(bad_cases)
 
         return {
             "total_cases": len(bad_cases),
             "category_distribution": dict(case_categories),
             "typical_cases": typical_cases,
-            "improvement_suggestions": self._generate_case_improvements(typical_cases)
+            "improvement_suggestions": self._generate_case_improvements(typical_cases),
+            "_analysis_method": "rules"
         }
 
     def generate_periodic_reflection(self, days: int = 7) -> Dict[str, Any]:

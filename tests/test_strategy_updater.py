@@ -1,0 +1,469 @@
+"""
+StrategyUpdater 单元测试
+
+验证策略更新器的策略生成、激活、回滚等逻辑
+"""
+
+import pytest
+import sys
+import os
+from datetime import datetime
+
+# 添加项目根目录到路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from agents.reflection.strategy_updater import (
+    StrategyUpdater,
+    StrategyType,
+    StrategyStatus,
+    StrategyVersion
+)
+
+
+class TestStrategyUpdater:
+    """StrategyUpdater 单元测试"""
+
+    @pytest.fixture
+    def updater(self):
+        """创建策略更新器实例"""
+        return StrategyUpdater()
+
+    # ===== 默认策略初始化测试 =====
+
+    def test_default_strategies_initialized(self, updater):
+        """测试：默认策略已初始化"""
+        for strategy_type in StrategyType:
+            active = updater.get_active_strategy(strategy_type)
+            assert active is not None, f"策略 {strategy_type.value} 未初始化"
+            assert 'version_id' in active
+            assert 'config' in active
+
+    def test_all_strategy_types_have_default(self, updater):
+        """测试：所有策略类型都有默认配置"""
+        expected_types = [
+            StrategyType.MATCHING,
+            StrategyType.RECOMMENDATION,
+            StrategyType.ROUTING,
+            StrategyType.PROMPT,
+            StrategyType.TIMEOUT
+        ]
+
+        for st in expected_types:
+            active = updater.get_active_strategy(st)
+            assert active is not None
+            assert 'default' in active['version_id'].lower() or active['name']
+
+    def test_default_matching_strategy_config(self, updater):
+        """测试：默认匹配策略配置"""
+        config = updater.get_active_strategy(StrategyType.MATCHING)['config']
+
+        assert 'similarity_weight' in config
+        assert 'gender_preference_weight' in config
+        assert 'availability_weight' in config
+        assert config['fallback_enabled'] == True
+        assert config['max_candidates'] == 5
+
+    def test_default_recommendation_strategy_config(self, updater):
+        """测试：默认推荐策略配置"""
+        config = updater.get_active_strategy(StrategyType.RECOMMENDATION)['config']
+
+        assert 'personalization_level' in config
+        assert 'diversity_weight' in config
+        assert 'recency_weight' in config
+        assert config['cold_start_mode'] == 'popularity'
+
+    # ===== 从坏 case 生成策略测试 =====
+
+    def test_generate_avoidance_strategy_from_bad_case(self, updater):
+        """测试：从坏 case 生成避免策略"""
+        bad_case = {
+            'case_id': 'bc_weekend_001',
+            'description': '周末下午预约失败率高',
+            'task_type': 'appointment',
+            'severity': 8,
+            'trigger': {
+                'time_slot': 'weekend_afternoon'
+            },
+            'suggested_fix': {
+                'weekend_weight': -0.2,
+                'prefer_workday': True,
+                'similarity_weight': 0.5
+            }
+        }
+
+        strategies = updater.generate_strategies_from_insights({
+            'recent_bad_cases': [bad_case]
+        })
+
+        assert len(strategies) >= 1
+
+        # 找到生成的避免策略
+        avoidance_strategy = None
+        for s in strategies:
+            if 'avoid' in s.version_id.lower() or 'avoid' in s.name.lower():
+                avoidance_strategy = s
+                break
+
+        assert avoidance_strategy is not None
+        assert avoidance_strategy.strategy_type == StrategyType.MATCHING
+        assert 'weekend_weight' in avoidance_strategy.config
+        assert avoidance_strategy.config['weekend_weight'] == -0.2
+        assert avoidance_strategy.priority == 8
+
+    def test_generate_avoidance_strategy_consultation(self, updater):
+        """测试：从咨询类坏 case 生成 prompt 策略"""
+        bad_case = {
+            'case_id': 'bc_rag_001',
+            'description': 'RAG 检索失败率高',
+            'task_type': 'consultation',
+            'severity': 7,
+            'trigger': {},
+            'suggested_fix': {
+                'prompt_style': 'detailed',
+                'fallback_enabled': True
+            }
+        }
+
+        strategies = updater.generate_strategies_from_insights({
+            'recent_bad_cases': [bad_case]
+        })
+
+        # 咨询类应该生成 PROMPT 策略
+        prompt_strategies = [s for s in strategies if s.strategy_type == StrategyType.PROMPT]
+        assert len(prompt_strategies) >= 1
+
+    def test_generate_avoidance_strategy_no_fix(self, updater):
+        """测试：坏 case 无 suggested_fix 时不生成策略"""
+        bad_case = {
+            'case_id': 'bc_empty_001',
+            'description': '无修复建议的坏 case',
+            'task_type': 'appointment',
+            'trigger': {},
+            # 没有 suggested_fix
+        }
+
+        strategies = updater.generate_strategies_from_insights({
+            'recent_bad_cases': [bad_case]
+        })
+
+        # 应该没有生成策略（因为没有 suggested_fix）
+        avoid_strategies = [s for s in strategies
+                           if 'avoid' in s.version_id.lower()]
+        assert len(avoid_strategies) == 0
+
+    # ===== 从推荐生成策略测试 =====
+
+    def test_generate_optimization_strategy_from_recommendation(self, updater):
+        """测试：从推荐生成优化策略"""
+        recommendation = {
+            'id': 'rec_001',
+            'title': '增加相似度权重',
+            'priority': 'high',
+            'action': {
+                'type': 'matching',
+                'parameters': {
+                    'similarity_weight': 0.6,
+                    'gender_preference_weight': 0.3
+                }
+            }
+        }
+
+        strategies = updater.generate_strategies_from_insights({
+            'actionable_recommendations': [recommendation]
+        })
+
+        assert len(strategies) >= 1
+
+        # 找到生成的优化策略
+        opt_strategy = None
+        for s in strategies:
+            if 'opt' in s.version_id.lower() or '优化' in s.name:
+                opt_strategy = s
+                break
+
+        assert opt_strategy is not None
+        assert opt_strategy.strategy_type == StrategyType.MATCHING
+        assert opt_strategy.config['similarity_weight'] == 0.6
+        assert opt_strategy.priority == 10  # high priority = 10
+
+    def test_generate_optimization_strategy_low_priority(self, updater):
+        """测试：低优先级推荐生成低优先级策略"""
+        recommendation = {
+            'id': 'rec_002',
+            'title': '次要优化',
+            'priority': 'medium',  # 不是 high
+            'action': {
+                'type': 'matching',
+                'parameters': {'test_param': 0.5}
+            }
+        }
+
+        strategies = updater.generate_strategies_from_insights({
+            'actionable_recommendations': [recommendation]
+        })
+
+        opt_strategies = [s for s in strategies if 'opt' in s.version_id.lower()]
+        if opt_strategies:
+            assert opt_strategies[0].priority == 5  # non-high priority = 5
+
+    def test_generate_optimization_strategy_invalid_type(self, updater):
+        """测试：无效的策略类型时使用默认类型"""
+        recommendation = {
+            'id': 'rec_003',
+            'title': '无效类型测试',
+            'priority': 'high',
+            'action': {
+                'type': 'invalid_type_xyz',  # 无效类型
+                'parameters': {}
+            }
+        }
+
+        strategies = updater.generate_strategies_from_insights({
+            'actionable_recommendations': [recommendation]
+        })
+
+        # 应该使用默认的 MATCHING 策略
+        assert len(strategies) >= 1
+        assert strategies[0].strategy_type == StrategyType.MATCHING
+
+    # ===== 从模式分析生成策略测试 =====
+
+    def test_generate_adaptation_strategy_user_preference(self, updater):
+        """测试：从用户偏好模式生成推荐策略"""
+        insights = {
+            'pattern_insights': {
+                'user_preference': {
+                    'confidence': 0.8,
+                    'parameters': {
+                        'preferred_gender': 'female'
+                    }
+                }
+            }
+        }
+
+        strategies = updater.generate_strategies_from_insights(insights)
+
+        adapt_strategies = [s for s in strategies
+                          if 'adapt' in s.version_id.lower()]
+        assert len(adapt_strategies) >= 1
+
+        # 用户偏好应该生成 RECOMMENDATION 策略
+        rec_strategies = [s for s in adapt_strategies
+                         if s.strategy_type == StrategyType.RECOMMENDATION]
+        assert len(rec_strategies) >= 1
+
+    def test_generate_adaptation_strategy_time_pattern(self, updater):
+        """测试：从时间模式生成匹配策略"""
+        insights = {
+            'pattern_insights': {
+                'time_pattern': {
+                    'confidence': 0.7,
+                    'parameters': {
+                        'peak_hours': ['14:00', '15:00', '16:00']
+                    }
+                }
+            }
+        }
+
+        strategies = updater.generate_strategies_from_insights(insights)
+
+        adapt_strategies = [s for s in strategies
+                          if s.strategy_type == StrategyType.MATCHING]
+        assert len(adapt_strategies) >= 1
+
+    # ===== 策略激活和回滚测试 =====
+
+    def test_strategy_activation(self, updater):
+        """测试：策略激活"""
+        # 先生成一个新策略
+        strategies = updater.generate_strategies_from_insights({
+            'actionable_recommendations': [{
+                'id': 'rec_activation_test',
+                'title': '激活测试策略',
+                'priority': 'high',
+                'action': {
+                    'type': 'matching',
+                    'parameters': {'test_value': 0.99}
+                }
+            }]
+        })
+
+        if strategies:
+            new_strategy = strategies[0]
+
+            # 激活策略
+            result = updater.activate_strategy(
+                new_strategy.version_id,
+                new_strategy.strategy_type
+            )
+
+            assert result == True
+
+            # 验证策略已激活
+            active = updater.get_active_strategy(new_strategy.strategy_type)
+            assert active['version_id'] == new_strategy.version_id
+
+    def test_strategy_activation_invalid_version(self, updater):
+        """测试：激活无效版本返回 False"""
+        result = updater.activate_strategy(
+            'invalid_version_id_xyz',
+            StrategyType.MATCHING
+        )
+
+        assert result == False
+
+    def test_strategy_rollback(self, updater):
+        """测试：策略回滚到默认版本"""
+        # 先激活一个新策略
+        strategies = updater.generate_strategies_from_insights({
+            'actionable_recommendations': [{
+                'id': 'rec_rollback_test',
+                'title': '回滚测试',
+                'priority': 'high',
+                'action': {
+                    'type': 'matching',
+                    'parameters': {'rollback_test': True}
+                }
+            }]
+        })
+
+        if strategies:
+            updater.activate_strategy(
+                strategies[0].version_id,
+                StrategyType.MATCHING
+            )
+
+            # 回滚
+            result = updater.rollback_strategy(StrategyType.MATCHING)
+
+            assert result == True
+
+            # 验证回到了默认策略
+            active = updater.get_active_strategy(StrategyType.MATCHING)
+            assert 'default' in active['version_id'].lower()
+
+    # ===== 策略应用测试 =====
+
+    def test_apply_strategy_to_context_appointment(self, updater):
+        """测试：应用策略到预约任务上下文"""
+        context = {'user_id': 'test_user', 'session_id': 'test_session'}
+
+        updated_context = updater.apply_strategy_to_context(
+            context,
+            task_type='appointment'
+        )
+
+        assert 'matching_config' in updated_context
+        assert 'recommendation_config' in updated_context
+
+    def test_apply_strategy_to_context_consultation(self, updater):
+        """测试：应用策略到咨询任务上下文"""
+        context = {'user_id': 'test_user', 'session_id': 'test_session'}
+
+        updated_context = updater.apply_strategy_to_context(
+            context,
+            task_type='consultation'
+        )
+
+        assert 'prompt_config' in updated_context
+
+    # ===== 获取活跃策略测试 =====
+
+    def test_get_all_active_strategies(self, updater):
+        """测试：获取所有活跃策略"""
+        all_strategies = updater.get_all_active_strategies()
+
+        assert StrategyType.MATCHING.value in all_strategies
+        assert StrategyType.RECOMMENDATION.value in all_strategies
+        assert StrategyType.ROUTING.value in all_strategies
+        assert StrategyType.PROMPT.value in all_strategies
+        assert StrategyType.TIMEOUT.value in all_strategies
+
+        for st_value, strategy_info in all_strategies.items():
+            assert strategy_info is not None
+            assert 'version_id' in strategy_info
+            assert 'config' in strategy_info
+
+    # ===== 策略导出导入测试 =====
+
+    def test_export_strategies(self, updater):
+        """测试：导出策略"""
+        export_data = updater.export_strategies()
+
+        assert 'exported_at' in export_data
+        assert 'strategies' in export_data
+        assert 'active_strategies' in export_data
+
+        for st in StrategyType:
+            assert st.value in export_data['strategies']
+
+    def test_import_strategies(self, updater):
+        """测试：导入策略"""
+        # 先导出
+        export_data = updater.export_strategies()
+
+        # 创建新的 updater
+        new_updater = StrategyUpdater()
+
+        # 导入
+        new_updater.import_strategies(export_data)
+
+        # 验证导入成功
+        for st in StrategyType:
+            active = new_updater.get_active_strategy(st)
+            assert active is not None
+
+    # ===== 策略优先级测试 =====
+
+    def test_high_severity_bad_case_high_priority(self, updater):
+        """测试：高严重性坏 case 生成高优先级策略"""
+        bad_case = {
+            'case_id': 'bc_high_severity',
+            'description': '严重问题',
+            'task_type': 'appointment',
+            'severity': 10,  # 最高优先级
+            'trigger': {},
+            'suggested_fix': {'test': True}
+        }
+
+        strategies = updater.generate_strategies_from_insights({
+            'recent_bad_cases': [bad_case]
+        })
+
+        if strategies:
+            assert strategies[0].priority == 10
+
+
+class TestStrategyVersion:
+    """StrategyVersion 数据类测试"""
+
+    def test_strategy_version_creation(self):
+        """测试：策略版本创建"""
+        strategy = StrategyVersion(
+            version_id="test_v1",
+            strategy_type=StrategyType.MATCHING,
+            name="测试策略",
+            config={'test_param': 1.0},
+            priority=5,
+            trigger_reason="单元测试创建"
+        )
+
+        assert strategy.version_id == "test_v1"
+        assert strategy.strategy_type == StrategyType.MATCHING
+        assert strategy.config['test_param'] == 1.0
+        assert strategy.priority == 5
+
+    def test_strategy_version_default_status(self):
+        """测试：默认状态为 PENDING"""
+        strategy = StrategyVersion(
+            version_id="test_v2",
+            strategy_type=StrategyType.RECOMMENDATION,
+            name="测试策略2",
+            config={}
+        )
+
+        assert strategy.status == StrategyStatus.PENDING
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v', '--tb=short'])

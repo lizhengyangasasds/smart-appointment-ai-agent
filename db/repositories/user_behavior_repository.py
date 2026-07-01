@@ -307,18 +307,18 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
     def get_technician_popularity(self, days_back: int = 30) -> List[Dict[str, Any]]:
         """
         获取技师受欢迎程度统计
-        
+
         Args:
             days_back: 统计天数
-            
+
         Returns:
             技师受欢迎程度列表
         """
         with self.session_manager.session_scope() as session:
             cutoff_date = datetime.utcnow() - timedelta(days=days_back)
-            
+
             from sqlalchemy import func
-            
+
             popularity = session.query(
                 UserBehavior.technician_id,
                 Technician.name,
@@ -330,7 +330,7 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
             ).group_by(UserBehavior.technician_id, Technician.name).order_by(
                 func.count(UserBehavior.technician_id).desc()
             ).all()
-            
+
             return [
                 {
                     'technician_id': p[0],
@@ -340,6 +340,211 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
                 }
                 for p in popularity
             ]
+
+    def get_consultation_behaviors(
+        self,
+        user_id: str = None,
+        days_back: int = 30,
+        min_score: float = None,
+        max_score: float = None
+    ) -> List[Dict[str, Any]]:
+        """
+        获取咨询行为记录（支持过滤条件）
+
+        Args:
+            user_id: 用户ID过滤
+            days_back: 查询多少天内的记录
+            min_score: 最低分数过滤（doc_scores 中的最大值）
+            max_score: 最高分数过滤
+
+        Returns:
+            咨询行为列表
+        """
+        with self.session_manager.session_scope() as session:
+            query = session.query(UserBehavior).filter(
+                UserBehavior.action_type == 'consultation'
+            )
+
+            if user_id:
+                query = query.filter(UserBehavior.user_id == user_id)
+
+            if days_back:
+                cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+                query = query.filter(UserBehavior.created_at >= cutoff_date)
+
+            behaviors = query.order_by(UserBehavior.created_at.desc()).all()
+
+            # 过滤有分数条件的行为
+            result = []
+            for behavior in behaviors:
+                behavior_dict = self._behavior_to_dict(behavior)
+                action_data = behavior.action_data or {}
+
+                # 检查分数条件
+                if min_score is not None or max_score is not None:
+                    doc_scores = action_data.get('doc_scores', [])
+                    max_doc_score = max(doc_scores) if doc_scores else 0.0
+
+                    if min_score is not None and max_doc_score < min_score:
+                        continue
+                    if max_score is not None and max_doc_score > max_score:
+                        continue
+
+                result.append(behavior_dict)
+
+            return result
+
+    def get_consultation_statistics(self, days_back: int = 30) -> Dict[str, Any]:
+        """
+        获取咨询统计信息
+
+        Args:
+            days_back: 统计天数
+
+        Returns:
+            咨询统计信息
+        """
+        with self.session_manager.session_scope() as session:
+            cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+
+            from sqlalchemy import func, json
+
+            # 获取所有咨询行为
+            consultations = session.query(UserBehavior).filter(
+                UserBehavior.action_type == 'consultation',
+                UserBehavior.created_at >= cutoff_date
+            ).all()
+
+            total_count = len(consultations)
+
+            # 统计文档使用情况
+            total_docs_used = 0
+            all_scores = []
+            category_counts = {}
+
+            for behavior in consultations:
+                action_data = behavior.action_data or {}
+                doc_count = action_data.get('knowledge_docs_used', 0)
+                doc_scores = action_data.get('doc_scores', [])
+                categories = action_data.get('categories', [])
+
+                total_docs_used += doc_count
+                all_scores.extend(doc_scores)
+
+                for cat in categories:
+                    category_counts[cat] = category_counts.get(cat, 0) + 1
+
+            # 计算分数统计
+            avg_score = sum(all_scores) / len(all_scores) if all_scores else 0.0
+            max_score = max(all_scores) if all_scores else 0.0
+            min_score = min(all_scores) if all_scores else 0.0
+
+            # 统计用户数
+            unique_users = session.query(
+                func.count(func.distinct(UserBehavior.user_id))
+            ).filter(
+                UserBehavior.action_type == 'consultation',
+                UserBehavior.created_at >= cutoff_date
+            ).scalar() or 0
+
+            return {
+                'total_consultations': total_count,
+                'unique_users': unique_users,
+                'avg_docs_per_consultation': total_docs_used / total_count if total_count > 0 else 0,
+                'avg_doc_score': avg_score,
+                'max_doc_score': max_score,
+                'min_doc_score': min_score,
+                'category_distribution': category_counts,
+                'period_days': days_back
+            }
+
+    def get_high_score_low_quality_consultations(
+        self,
+        score_threshold: float = 0.8,
+        days_back: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        获取"高分但可能低质量"的咨询记录（用于分析 RAG 问题）
+
+        Args:
+            score_threshold: 分数阈值（默认 0.8 表示高分）
+            days_back: 查询天数
+
+        Returns:
+            高分但可能质量不佳的咨询列表
+        """
+        with self.session_manager.session_scope() as session:
+            cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+
+            consultations = session.query(UserBehavior).filter(
+                UserBehavior.action_type == 'consultation',
+                UserBehavior.created_at >= cutoff_date
+            ).all()
+
+            result = []
+            for behavior in consultations:
+                action_data = behavior.action_data or {}
+                doc_scores = action_data.get('doc_scores', [])
+                max_score = max(doc_scores) if doc_scores else 0.0
+
+                # 高分但回答过短（可能是高分但答非所问）
+                response_length = action_data.get('response_length', 0)
+
+                if max_score >= score_threshold and response_length < 50:
+                    result.append({
+                        'id': behavior.id,
+                        'user_id': behavior.user_id,
+                        'session_id': behavior.session_id,
+                        'question': action_data.get('question', ''),
+                        'doc_scores': doc_scores,
+                        'max_score': max_score,
+                        'response_length': response_length,
+                        'categories': action_data.get('categories', []),
+                        'created_at': behavior.created_at,
+                        'potential_issue': '高分但回答过短，可能答非所问'
+                    })
+
+            return result
+
+    def get_user_consultation_history(
+        self,
+        user_id: str,
+        days_back: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        获取指定用户的咨询历史
+
+        Args:
+            user_id: 用户ID
+            days_back: 查询天数
+
+        Returns:
+            用户的咨询历史
+        """
+        return self.get_consultation_behaviors(user_id=user_id, days_back=days_back)
+
+    def get_all_user_ids(self, days_back: int = 30) -> List[str]:
+        """
+        获取所有有过行为的用户ID列表
+
+        Args:
+            days_back: 查询天数
+
+        Returns:
+            用户ID列表
+        """
+        with self.session_manager.session_scope() as session:
+            from sqlalchemy import func
+
+            cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+
+            user_ids = session.query(
+                func.distinct(UserBehavior.user_id)
+            ).filter(
+                UserBehavior.created_at >= cutoff_date
+            ).all()
+
+            return [u[0] for u in user_ids if u[0]]
 
     def _behavior_to_dict(self, behavior: UserBehavior) -> Dict[str, Any]:
         """将行为对象转换为字典"""
