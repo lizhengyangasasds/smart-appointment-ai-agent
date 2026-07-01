@@ -103,16 +103,66 @@
 
 ## D5: 反思与评估闭环
 
-**文件位置：** `agents/reflection/`，`agents/reflection_agent.py`
-**作用：** 每次任务执行后评估质量，发现失败模式，生成改进建议，动态更新Agent策略。
-**在架构中的位置：** 独立运行层，不直接参与用户对话，而是周期性分析历史数据，生成策略供Agent查询。
+**文件位置：** `agents/reflection/`，`agents/reflection_agent.py`，`services/reflection_service.py`，`api/reflection_api.py`
+**作用：** 每次任务执行后评估质量，发现失败模式，生成改进建议，动态更新Agent策略，形成完整的"评估→反思→策略→验证→再评估"闭环。
+**在架构中的位置：** 独立运行层，不直接参与用户对话。chat_handler 在对话结束后自动触发反思；app.py 启动时在后台线程中周期性运行完整闭环验证。
 
 **核心组件：**
-- `evaluator.py` — `TaskEvaluator`，评估任务成功/部分成功/失败，写入评估记录
-- `analyzer.py` — `ReflectionAnalyzer`，分析失败任务根因、用户行为模式
-- `strategy_updater.py` — `StrategyUpdater`，根据反思结果生成/激活/回滚Agent策略
-- `engine.py` — 反思引擎，协调评估→分析→策略更新全流程
-- `reflection_aware.py` — `ReflectionAwareMixin`，让Agent可查询和应用反思洞察
+
+| 组件 | 文件 | 职责 |
+|------|------|------|
+| `ReflectionAgent` | `agents/reflection_agent.py` | 统一入口，管理评估/分析/报告全流程 |
+| `ReflectionEngine` | `agents/reflection/engine.py` | 核心引擎，协调五步闭环 |
+| `ClosedLoopEvaluator` | `agents/reflection/closed_loop_evaluator.py` | A/B 风格对比策略前后效果，决定保持/回滚 |
+| `StrategyUpdater` | `agents/reflection/strategy_updater.py` | 根据反思洞察生成/激活/回滚 Agent 策略 |
+| `ReflectionAwareMixin` | `agents/reflection/reflection_aware.py` | 让 Agent 查询和应用反思洞察 |
+| `ReflectionService` | `services/reflection_service.py` | 全局单例封装，懒加载，对接 chat_handler 和后台任务 |
+| `reflection_api.py` | `api/reflection_api.py` | REST 接口暴露反思数据 |
+
+**完整闭环链路（五步）：**
+
+```
+用户对话结束（chat_handler 检测到预约完成）
+    ↓
+触发反思
+    ↓
+Step 1 评估（TaskEvaluator）
+  - 评估成功率、轮数、完成时间
+  - 阈值触发：成功率<0.7 或 轮数>10 或 时间>120s
+  - 写入 evaluation_repo
+    ↓
+Step 2 分析（ReflectionAnalyzer）
+  - 分析失败任务根因
+  - 发现用户行为模式
+  - 识别坏 case
+    ↓
+Step 3 策略生成（StrategyUpdater）
+  - 根据坏 case + 洞察生成新策略
+  - 策略类型：MATCHING / RECOMMENDATION / ROUTING / PROMPT
+  - 激活新策略（标记 version_id + 时间窗口）
+    ↓
+Step 4 效果验证（ClosedLoopEvaluator）
+  - 周期性触发（默认每 6 小时）
+  - 对比策略启用前后数据（样本量需 >= 10）
+  - 计算改进率、置信度、统计显著性
+  - 判定：IMPROVED → 保持 / DEGRADED → 回滚 / NO_CHANGE → 继续观察
+    ↓
+Step 5 策略应用（ReflectionAwareMixin）
+  - Agent 下次运行时查询 get_insights()
+  - apply_insights() 注入到预约匹配 / 咨询回复
+  - validate_action_against_insights() 预防坏 case 重现
+```
+
+**闭环接入点（2026-07-01 补充）：**
+
+| 接入点 | 位置 | 方式 |
+|--------|------|------|
+| 引擎注入 | `api/chat_handler.py` `_MemoryAwareChatSession.__init__` | `reflection_engine=reflection_svc.agent.engine` |
+| 反思触发 | `api/chat_handler.py` `_trigger_reflection()` | `asyncio.create_task()` 静默调用，不阻塞响应 |
+| 任务追踪 | `api/chat_handler.py` `_SessionMeta` | 记录任务类型/轮数/耗时/预约历史 |
+| 周期验证 | `app.py` `_start_periodic_closed_loop()` | 后台线程每 6 小时调用 `run_closed_loop_cycle()` |
+| 策略应用 | `AppointmentAgent.apply_insights()` | 注入匹配提示 + 避免模式 |
+| 策略应用 | `ConsultantAgent.apply_insights()` | 注入回复风格 + 强调/避免话题 |
 
 **评估指标：** `SuccessLevel`（FAILED=0 / PARTIAL=1 / SUCCESS=2），`_should_trigger_reflection` 阈值（成功率<0.7、轮数>10、完成时间>120s）
 **策略类型：** MATCHING / RECOMMENDATION / ROUTING / PROMPT / TIMEOUT
@@ -161,10 +211,12 @@
 **在架构中的位置：** 最外层，负责与Web客户端或外部系统交互。
 
 **核心组件：**
-- `chat_handler.py` — `handle_chat()` 统一对话入口，协调记忆→分类→Agent调用→返回
+- `chat_handler.py` — `_MemoryAwareChatSession` 统一对话入口，协调记忆→分类→Agent调用→反思触发；每个 session 注入 `reflection_engine`，对话结束后静默触发反思
 - `memory.py` — 记忆管理API（reset/status/context/recommendation）
 - `reflection_api.py` — 反思数据API（insights/bad_cases/periodic_report）
+- `reflection_service.py` — `get_reflection_service()` 全局单例，懒加载，隔离初始化失败
 - `model_provider.py` — `create_chat_model()` / `create_embedding_model()` 统一LLM创建
 - `constants.py` — 状态枚举 `StateEnum`，消息类型常量
+- `app.py` — FastAPI 入口，启动时预热反思服务 + 启动周期性闭环验证线程
 
 **配置来源：** `settings.py` 读 `.env`，所有敏感配置（API key）不硬编码
