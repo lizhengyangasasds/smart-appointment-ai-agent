@@ -23,6 +23,7 @@ from .user_behavior_analysis import router as user_behavior_analysis_router
 from .user_behavior_analysis import router_underscore as user_behavior_analysis_underscore_router
 from .memory import router as memory_router
 from .reflection_api import router as reflection_router
+from .bulk_knowledge import router as bulk_knowledge_router
 
 # 创建API路由列表（用于注册到FastAPI应用）
 api_routers = [
