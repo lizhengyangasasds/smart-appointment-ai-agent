@@ -115,11 +115,12 @@ class _MemoryAwareChatSession:
         # 获取反思服务（全局单例）
         reflection_svc = _get_reflection_service()
 
-        # 初始化预约 Agent（注入反思引擎）
+        # 初始化预约 Agent（注入反思引擎和语义记忆服务）
         self._appointment_agent = AppointmentAgent(
             session_id=session_id,
             unrelated_callback=None,
             reflection_engine=reflection_svc.agent.engine if reflection_svc.is_available else None,
+            semantic_memory=self.memory_manager.semantic,
         )
         self._appointment_agent.set_shared_state(self._shared_state)
 

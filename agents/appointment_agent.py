@@ -27,7 +27,8 @@ class AppointmentAgent(ReflectionAwareMixin):
     4. 应用反思洞察优化预约决策（闭环）
     """
 
-    def __init__(self, session_id=None, unrelated_callback=None, reflection_engine=None):
+    def __init__(self, session_id=None, unrelated_callback=None, reflection_engine=None,
+                 semantic_memory=None):
         # 基础设置
         self.session_id = session_id or str(uuid.uuid4())
         self.unrelated_callback = unrelated_callback
@@ -64,6 +65,55 @@ class AppointmentAgent(ReflectionAwareMixin):
         self._insights_applied = False
         self._matching_hints: Dict[str, Any] = {}
         self._avoid_patterns: List[str] = []
+
+        # 语义记忆服务（从外部注入，用于用户画像驱动的技师推荐）
+        # 由 ChatHandler 在初始化时传入，AppointmentAgent 本身不持有 DB 依赖
+        self.semantic_memory = semantic_memory
+
+    def _enrich_history_from_memory(self) -> None:
+        """
+        用语义记忆补充 appointment_history，使推荐链路感知用户长期偏好。
+
+        只补充 appointment_history 中尚为空的字段，保留本次会话中
+        用户已明确提供的信息不被覆盖。
+        """
+        h = self.appointment_history
+        if not h:
+            return
+
+        if not self.semantic_memory:
+            return
+
+        prefs = self.semantic_memory.get_preferences(
+            session_id=self.session_id,
+            user_id=None
+        )
+        if not prefs:
+            return
+        if not h.get("technician_name") or h.get("technician_name") == "未知":
+            if "preferred_technician" in prefs:
+                h["technician_name"] = prefs["preferred_technician"]
+                self.logger.debug(f"[Memory] 补充偏好技师: {prefs['preferred_technician']}")
+
+        # 偏好时长
+        if not h.get("duration") or h.get("duration") == "未知":
+            if "duration_preference" in prefs:
+                h["duration"] = prefs["duration_preference"]
+
+        # 偏好项目
+        if not h.get("project") or h.get("project") == "未知":
+            if "project_preference" in prefs:
+                h["project"] = prefs["project_preference"]
+
+        # 偏好性别
+        if not h.get("gender") or h.get("gender") == "未知":
+            if "technician_gender" in prefs:
+                h["gender"] = prefs["technician_gender"]
+
+        # 偏好专长（用户对技师"风格"的描述）
+        if not h.get("preference") or h.get("preference") == "未知":
+            if "strength_preference" in prefs:
+                h["preference"] = prefs["strength_preference"]
 
     def apply_insights(self, insights: Dict[str, Any]) -> None:
         """
@@ -180,6 +230,10 @@ class AppointmentAgent(ReflectionAwareMixin):
             
             # 4. 处理预约完成的情况
             if self.finished:
+                # 用语义记忆补充预约历史，使推荐链路感知用户长期偏好
+                # 只补充空字段，本次会话信息优先级高于记忆
+                self._enrich_history_from_memory()
+
                 recommendation_pending = False
                 async for token in self.appointment_processor.handle_complete_appointment(
                     self.appointment_history, self.session_id
