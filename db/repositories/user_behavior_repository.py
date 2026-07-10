@@ -546,6 +546,26 @@ class UserBehaviorRepository(BaseUserBehaviorRepository):
 
             return [u[0] for u in user_ids if u[0]]
 
+    def get_all_behaviors(self, days_back: int = 30) -> List[Dict[str, Any]]:
+        """
+        获取所有用户的行为记录（无用户过滤）
+
+        Args:
+            days_back: 查询多少天内的记录
+
+        Returns:
+            所有行为记录列表
+        """
+        with self.session_manager.session_scope() as session:
+            cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+            behaviors = (
+                session.query(UserBehavior)
+                .filter(UserBehavior.created_at >= cutoff_date)
+                .order_by(UserBehavior.created_at.desc())
+                .all()
+            )
+            return [self._behavior_to_dict(b) for b in behaviors]
+
     def _behavior_to_dict(self, behavior: UserBehavior) -> Dict[str, Any]:
         """将行为对象转换为字典"""
         return {

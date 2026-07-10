@@ -240,7 +240,8 @@ class TestReflectionAnalyzerIntegration:
     def analyzer(self):
         return ReflectionAnalyzer()
 
-    def test_analyze_failed_tasks_with_mock_data(self, analyzer):
+    @pytest.mark.asyncio
+    async def test_analyze_failed_tasks_with_mock_data(self, analyzer):
         """测试：使用模拟数据分析失败任务"""
         # 模拟失败评估数据
         mock_evaluations = [
@@ -273,9 +274,13 @@ class TestReflectionAnalyzerIntegration:
             },
         ]
 
-        # 模拟 analyze 方法返回
-        with patch.object(analyzer, '_fetch_failed_evaluations', return_value=mock_evaluations):
-            result = analyzer.analyze_failed_tasks(task_type='appointment', days=7)
+        # 模拟 evaluation_repo 返回失败数据
+        analyzer.evaluation_repo = MagicMock()
+        analyzer.evaluation_repo.get_failed_evaluations.return_value = mock_evaluations
+        # 禁用 LLM 以使用规则引擎
+        analyzer.llm = None
+
+        result = await analyzer.analyze_failed_tasks(task_type='appointment', days=7)
 
         assert 'error_type_distribution' in result
         assert result['error_type_distribution'].get('slot_unavailable', 0) == 2

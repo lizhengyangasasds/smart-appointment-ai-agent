@@ -48,13 +48,24 @@ class InputParser:
                 '  "missing_info": "如果info_complete为false，请列出缺少的关键信息，如[start_time, project]等"\n'
                 "}}\n"
                 "判断逻辑：\n"
-                "1. 如果用户明确指定了技师姓名（如\"张伟技师\"、\"预约李小美\"等），请务必提取technician_name\n"
+                "1. 如果用户明确指定了技师姓名（如\"张伟技师\"、\"预约李小美\"、\"帮我约张伟\"等），请务必提取technician_name。\n"
+                "   特别注意：技师名通常为2~4个汉字的真实姓名（如张伟、王强、李娜、赵敏等）。\n"
+                "   【关键规则】technician_name 必须是真实的人名（2~4个汉字的姓名），绝对不能是以下内容：\n"
+                "     - 服务项目名（如\"按摩\"、\"按摩服务\"、\"推拿\"、\"足疗\"、\"spa\"等）\n"
+                "     - 描述性短语（如\"手劲大的女技师\"、\"力气大的男老师\"、\"经验丰富的\"、\"手法好的\"等）\n"
+                "     - 带有修饰词的组合（如\"女按摩师\"、\"男技师\"、\"高级技师\"等）\n"
+                "     - 任何不是真实人名的词汇\n"
+                "   如果无法确定是真实的人名，请将 technician_name 设为\"未知\"，并把这些描述分别提取到 gender / preference / project 字段。\n"
+                "   例如：用户说\"我要预约按摩服务\"，这是服务项目，应放入project=\"按摩\"，technician_name=\"未知\"。\n"
+                "   例如：用户说\"手劲大的女技师\"，应放入gender=\"女\"，preference=\"手劲大\"，technician_name=\"未知\"。\n"
                 "2. 如果用户在回应推荐技师的确认问题（如回复\"是\"、\"好\"、\"可以\"、\"不\"、\"不要\"等），请提取到confirmation字段，并且不要将其标记为unrelated\n"
                 "3. 必需信息判断：\n"
                 "   - 如果指定了技师名：需要start_time、project、duration\n"
                 "   - 如果没指定技师名：需要start_time、project、duration、gender\n"
                 "3. 只有当所有必需信息都不是'未知'时，info_complete才为true\n"
                 "4. 如果用户的问题和预约无关，请将unrelated设为true\n"
+                "5. 描述性偏好（如'手劲大'、'手法细腻'、'力气小'、'擅长经络'等）应放入preference字段。\n"
+                "【再次强调】project 字段应提取服务项目类型（如\"按摩\"），technician_name 必须是真实人名，绝不能把项目名误识别为技师名！\n"
                 "再次强调：只输出纯JSON，不要有任何代码块标记或其他文字。"
             )
         )
@@ -101,11 +112,11 @@ class InputParser:
     def parse_data(self, ai_content: str) -> Dict[str, Any]:
         """解析AI返回的JSON数据"""
         try:
-            return json.loads(ai_content)
+            data = json.loads(ai_content)
         except json.JSONDecodeError:
             return {
                 "gender": "未知",
-                "start_time": "未知", 
+                "start_time": "未知",
                 "duration": "未知",
                 "project": "未知",
                 "preference": "未知",
@@ -115,3 +126,101 @@ class InputParser:
                 "unrelated": False,
                 "missing_info": ["所有信息"]
             }
+
+        # 兜底：校验 technician_name 是否为真实姓名
+        # 避免 LLM 把服务项目名（如"按摩服务"）或描述性短语误识别为技师名
+        tech_name = data.get("technician_name")
+        if tech_name and tech_name != "未知" and not self._looks_like_real_name(tech_name):
+            print(f"[WARN] technician_name '{tech_name}' 不符合真实姓名规则，重置为未知")
+            # 如果误识别为技师名的内容里包含服务项目关键词，迁移到 project 字段
+            project_keywords = ["按摩", "推拿", "足疗", "spa", "理疗", "养生", "经络", "刮痧", "拔罐"]
+            if any(kw in tech_name for kw in project_keywords):
+                if not data.get("project") or data.get("project") == "未知":
+                    # 抽取项目名（去掉"服务"等后缀）
+                    for kw in project_keywords:
+                        if kw in tech_name:
+                            data["project"] = kw
+                            break
+            data["technician_name"] = "未知"
+
+        # 兜底：校验 project 是否合理
+        project = data.get("project")
+        if project and project != "未知" and not self._looks_like_valid_project(project):
+            print(f"[WARN] project '{project}' 不合理，重置为未知")
+            data["project"] = "未知"
+
+        # 重新计算 info_complete
+        required_fields = ["start_time", "project", "duration"]
+        # 如果指定了真实姓名，则不需要性别
+        real_name_provided = bool(
+            data.get("technician_name") and data["technician_name"] != "未知"
+        )
+        if not real_name_provided:
+            required_fields.append("gender")
+
+        info_complete = all(
+            data.get(f) and data[f] != "未知"
+            for f in required_fields
+        )
+        data["info_complete"] = info_complete
+
+        if not info_complete:
+            data["missing_info"] = [
+                f for f in required_fields
+                if not data.get(f) or data.get(f) == "未知"
+            ]
+        else:
+            data["missing_info"] = []
+
+        return data
+
+    @staticmethod
+    def _looks_like_real_name(name: str) -> bool:
+        """
+        判断是否为真实姓名（2~4个汉字）。
+        排除服务项目、描述性短语等。
+        """
+        if not name or not isinstance(name, str):
+            return False
+        name = name.strip()
+        # 长度必须是 2~4 个汉字
+        if not (2 <= len(name) <= 4):
+            return False
+        # 必须全部是汉字
+        if not all('\u4e00' <= ch <= '\u9fff' for ch in name):
+            return False
+        # 排除常见服务项目关键词（即使作为人名也不应该）
+        invalid_keywords = [
+            "按摩", "推拿", "足疗", "spa", "理疗", "养生",
+            "经络", "刮痧", "拔罐", "服务", "技师", "老师",
+            "手劲", "手劲大", "手劲小", "力气", "力气大", "力气小",
+            "手法", "经验", "丰富", "高级", "中级", "初级",
+            "好的", "好", "不错", "推荐", "最好", "最好",
+        ]
+        for kw in invalid_keywords:
+            if kw in name:
+                return False
+        # 排除带"大/小/好"的描述性短语（4字描述）
+        # 例如 "手劲大的", "手法好的", "经验丰富的"
+        if len(name) == 4:
+            if name[2:] in ["大的", "小的", "好的", "的", "经验丰富"]:
+                return False
+        return True
+
+    @staticmethod
+    def _looks_like_valid_project(project: str) -> bool:
+        """判断是否为合理的服务项目"""
+        if not project or not isinstance(project, str):
+            return False
+        project = project.strip()
+        if len(project) > 10:
+            return False
+        # 排除带"服务"后缀的描述（如"按摩服务"、"足疗服务"等）
+        if "服务" in project or "技师" in project or "老师" in project:
+            return False
+        valid_keywords = [
+            "按摩", "推拿", "足疗", "spa", "理疗", "养生",
+            "经络", "刮痧", "拔罐", "肩颈", "腰背", "头部",
+            "全身", "局部", "中式", "泰式", "精油"
+        ]
+        return any(kw in project for kw in valid_keywords)

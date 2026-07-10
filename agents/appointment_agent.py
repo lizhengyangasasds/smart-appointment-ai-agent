@@ -43,7 +43,7 @@ class AppointmentAgent(ReflectionAwareMixin):
 
         # 初始化组件
         self.input_parser = InputParser(self.llm)
-        self.technician_finder = TechnicianFinder()
+        self.technician_finder = TechnicianFinder(llm=self.llm)
         self.message_builder = MessageBuilder()
         self.appointment_database = AppointmentDatabase()
         self.appointment_processor = AppointmentProcessor(

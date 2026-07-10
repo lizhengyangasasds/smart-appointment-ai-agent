@@ -20,6 +20,8 @@ import json
 import logging
 import asyncio
 
+from .utils import _safe_dumps
+
 
 # ==================== Agent Prompt 模板 ====================
 
@@ -319,10 +321,10 @@ class ReflectionContextProvider:
 
             # 构建 Prompt
             prompt = CONTEXT_GENERATION_PROMPT.format(
-                current_context=json.dumps(current_context, ensure_ascii=False, indent=2),
-                insights=json.dumps(context.recommendations[:5], ensure_ascii=False, indent=2),
-                bad_cases=json.dumps(context.bad_cases[:3], ensure_ascii=False, indent=2),
-                active_strategies=json.dumps(active_strategies, ensure_ascii=False, indent=2)
+                current_context=_safe_dumps(current_context, ensure_ascii=False, indent=2),
+                insights=_safe_dumps(context.recommendations[:5], ensure_ascii=False, indent=2),
+                bad_cases=_safe_dumps(context.bad_cases[:3], ensure_ascii=False, indent=2),
+                active_strategies=_safe_dumps(active_strategies, ensure_ascii=False, indent=2)
             )
 
             # 调用 LLM
@@ -347,6 +349,81 @@ class ReflectionContextProvider:
         except Exception as e:
             self.logger.error(f"Agent 上下文生成失败: {e}")
             self._generate_context_with_template(context, ContextFormat.COMPACT)
+
+    def _generate_context_with_template(self, context: ReflectionContext,
+                                          format: ContextFormat) -> None:
+        """
+        使用模板生成上下文（无 LLM，规则式 fallback）
+
+        从 recommendations / bad_cases / patterns 直接拼出 context 字段。
+        """
+        self.logger.info("使用模板生成反思上下文")
+
+        # 1. do_list：从前 3 条 recommendations 提取 actionable 建议
+        do_list = []
+        for rec in (context.recommendations or [])[:3]:
+            if isinstance(rec, dict):
+                action = rec.get("action") or rec.get("title") or rec.get("description")
+                if action:
+                    do_list.append(str(action))
+            elif isinstance(rec, str):
+                do_list.append(rec)
+
+        # 2. avoid_list：从 bad_cases 提取
+        avoid_list = []
+        for bc in (context.bad_cases or [])[:3]:
+            if isinstance(bc, dict):
+                desc = bc.get("description") or bc.get("trigger") or bc.get("error_type")
+                if desc:
+                    avoid_list.append(f"避免: {desc}")
+            elif isinstance(bc, str):
+                avoid_list.append(f"避免: {bc}")
+
+        # 3. context_text：人类可读的总结
+        parts = []
+        if do_list:
+            parts.append("建议：" + "；".join(do_list))
+        if avoid_list:
+            parts.append("避免：" + "；".join(avoid_list))
+        if context.patterns:
+            parts.append("模式：" + "；".join(str(p) for p in context.patterns[:3]))
+        if context.active_strategy:
+            strategy_name = context.active_strategy.get("name", "当前策略")
+            parts.append(f"当前策略：{strategy_name}")
+
+        context_text = "\n".join(parts) if parts else "暂无反思洞察"
+
+        # 4. prompt_injection：注入到对话 prompt 的片段
+        prompt_injection_parts = []
+        if do_list:
+            prompt_injection_parts.append("【系统提示：基于历史反思，建议】\n- " + "\n- ".join(do_list))
+        if avoid_list:
+            prompt_injection_parts.append("【系统提示：避免以下坏 case】\n- " + "\n- ".join(avoid_list))
+        prompt_injection = "\n".join(prompt_injection_parts)
+
+        # 5. specific_suggestions 默认配置
+        specific_suggestions = {
+            "recommendation_count": 3,
+            "max_turns": 15,
+            "timeout_seconds": 120,
+            "style": "concise",
+        }
+
+        # 6. confidence：根据是否有数据估算
+        has_data = bool(do_list or avoid_list or context.patterns)
+        confidence = 0.3 if has_data else 0.1
+
+        context.context_text = context_text
+        context.prompt_injection = prompt_injection
+        context.do_list = do_list
+        context.avoid_list = avoid_list
+        context.specific_suggestions = specific_suggestions
+        context.confidence = confidence
+        context.generation_method = "template"
+
+        # 标记数据源
+        if "template" not in context.data_sources:
+            context.data_sources.append("template")
 
     async def _call_llm_async(self, prompt: str, temperature: float = 0.3) -> Optional[str]:
         """异步调用 LLM"""

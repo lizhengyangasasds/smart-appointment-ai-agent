@@ -19,6 +19,8 @@ from collections import Counter
 from datetime import datetime
 import logging
 
+from .utils import _safe_dumps
+
 
 # ==================== Agent Prompt 模板 ====================
 
@@ -171,7 +173,7 @@ class ReflectionAnalyzer:
         # LLM 结果缓存
         self._llm_cache: Dict[str, Dict[str, Any]] = {}
 
-    def analyze_failed_tasks(self, task_type: str = None, days: int = 7) -> Dict[str, Any]:
+    async def analyze_failed_tasks(self, task_type: str = None, days: int = 7) -> Dict[str, Any]:
         """
         分析失败任务，找出根因（Agent 驱动）
 
@@ -206,13 +208,11 @@ class ReflectionAnalyzer:
         )
 
         if should_use_llm:
-            # 使用 Agent 进行深度分析
-            return self._analyze_with_agent(failed_evaluations, task_type, days)
+            return await self._analyze_with_agent(failed_evaluations, task_type, days)
         else:
-            # 使用规则引擎分析
             return self._analyze_with_rules(failed_evaluations, task_type, days)
 
-    def _analyze_with_agent(
+    async def _analyze_with_agent(
         self,
         evaluations: List[Dict],
         task_type: Optional[str],
@@ -235,10 +235,12 @@ class ReflectionAnalyzer:
         cache_key = f"root_cause_{task_type}_{days}_{len(evaluations)}"
         if self._agent_config['cache_llm_results'] and cache_key in self._llm_cache:
             cached = self._llm_cache[cache_key]
-            cache_age = (datetime.now() - cached.get('_cached_at', datetime.min)).seconds
-            if cache_age < self._agent_config['llm_cache_ttl']:
-                self.logger.info(f"使用缓存的分析结果，缓存年龄: {cache_age}秒")
-                return cached
+            cached_at = cached.get('_cached_at')
+            if cached_at is not None:
+                cache_age = (datetime.now() - cached_at).total_seconds()
+                if cache_age < self._agent_config['llm_cache_ttl']:
+                    self.logger.info(f"使用缓存的分析结果，缓存年龄: {cache_age:.0f}秒")
+                    return cached
 
         try:
             # 准备数据
@@ -246,15 +248,14 @@ class ReflectionAnalyzer:
 
             # 构建 Prompt
             prompt = ROOT_CAUSE_ANALYSIS_PROMPT.format(
-                failed_tasks=json.dumps(failed_tasks, ensure_ascii=False, indent=2),
+                failed_tasks=_safe_dumps(failed_tasks, ensure_ascii=False, indent=2),
                 days=days,
                 task_type=task_type or "all",
                 total_failed=len(evaluations)
             )
 
-            # 调用 LLM
-            import asyncio
-            response = asyncio.run(self._call_llm(prompt))
+            # 调用 LLM（直接 await，不需要 asyncio.run）
+            response = await self._call_llm(prompt)
 
             # 解析结果
             if response:
@@ -273,7 +274,6 @@ class ReflectionAnalyzer:
 
                 return result
             else:
-                # LLM 调用失败，fallback 到规则
                 self.logger.warning("LLM 调用失败，fallback 到规则引擎")
                 return self._analyze_with_rules(evaluations, task_type, days)
 
@@ -304,25 +304,36 @@ class ReflectionAnalyzer:
         try:
             # 使用 LangChain 或直接调用
             if hasattr(self.llm, 'ainvoke'):
-                # LangChain 异步调用
-                response = await self.llm.ainvoke(prompt)
+                # LangChain 异步调用（带超时保护）
+                import asyncio
+                response = await asyncio.wait_for(
+                    self.llm.ainvoke(prompt),
+                    timeout=30.0
+                )
                 return response.content if hasattr(response, 'content') else str(response)
             elif hasattr(self.llm, 'invoke'):
                 # LangChain 同步调用
                 response = self.llm.invoke(prompt)
                 return response.content if hasattr(response, 'content') else str(response)
             else:
-                # 原始 OpenAI API
-                response = await self.llm.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": "你是一个专业的系统分析师。"},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=temperature,
-                    response_format={"type": "json_object"}
+                # 原始 OpenAI API（带超时保护）
+                import asyncio
+                response = await asyncio.wait_for(
+                    self.llm.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": "你是一个专业的系统分析师。"},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=temperature,
+                        response_format={"type": "json_object"}
+                    ),
+                    timeout=30.0
                 )
                 return response.choices[0].message.content
+        except asyncio.TimeoutError:
+            self.logger.warning("LLM 调用超时（30s）")
+            return None
         except Exception as e:
             self.logger.error(f"LLM 调用异常: {e}")
             return None
@@ -393,7 +404,7 @@ class ReflectionAnalyzer:
             "_analysis_method": "rules"
         }
 
-    def discover_user_patterns(self, user_id: str = "default_user", days: int = 30) -> Dict[str, Any]:
+    async def discover_user_patterns(self, user_id: str = "default_user", days: int = 30) -> Dict[str, Any]:
         """
         发现用户行为模式（Agent 驱动）
 
@@ -427,11 +438,11 @@ class ReflectionAnalyzer:
         )
 
         if should_use_llm:
-            return self._discover_patterns_with_agent(evaluations, user_id, days)
+            return await self._discover_patterns_with_agent(evaluations, user_id, days)
         else:
             return self._discover_patterns_with_rules(evaluations, days)
 
-    def _discover_patterns_with_agent(
+    async def _discover_patterns_with_agent(
         self,
         evaluations: List[Dict],
         user_id: str,
@@ -454,9 +465,12 @@ class ReflectionAnalyzer:
         cache_key = f"user_patterns_{user_id}_{days}_{len(evaluations)}"
         if self._agent_config['cache_llm_results'] and cache_key in self._llm_cache:
             cached = self._llm_cache[cache_key]
-            cache_age = (datetime.now() - cached.get('_cached_at', datetime.min)).seconds
-            if cache_age < self._agent_config['llm_cache_ttl']:
-                return cached
+            cached_at = cached.get('_cached_at')
+            if cached_at is not None:
+                cache_age = (datetime.now() - cached_at).total_seconds()
+                if cache_age < self._agent_config['llm_cache_ttl']:
+                    self.logger.info(f"使用缓存的用户模式结果，缓存年龄: {cache_age:.0f}秒")
+                    return cached
 
         try:
             # 准备数据
@@ -464,11 +478,11 @@ class ReflectionAnalyzer:
 
             # 构建 Prompt
             prompt = USER_PATTERN_DISCOVERY_PROMPT.format(
-                user_data=json.dumps(user_data, ensure_ascii=False, indent=2)
+                user_data=_safe_dumps(user_data, ensure_ascii=False, indent=2)
             )
 
             # 调用 LLM
-            response = self._sync_call_llm(prompt)
+            response = await self._call_llm(prompt)
 
             if response:
                 result = json.loads(response)
@@ -572,7 +586,7 @@ class ReflectionAnalyzer:
             self.logger.error(f"同步 LLM 调用失败: {e}")
             return None
 
-    def analyze_bad_cases(self, days: int = 30) -> Dict[str, Any]:
+    async def analyze_bad_cases(self, days: int = 30) -> Dict[str, Any]:
         """
         分析坏case（Agent 驱动）
 
@@ -602,11 +616,11 @@ class ReflectionAnalyzer:
         )
 
         if should_use_llm:
-            return self._analyze_bad_cases_with_agent(bad_cases, days)
+            return await self._analyze_bad_cases_with_agent(bad_cases, days)
         else:
             return self._analyze_bad_cases_with_rules(bad_cases, days)
 
-    def _analyze_bad_cases_with_agent(
+    async def _analyze_bad_cases_with_agent(
         self,
         bad_cases: List[Dict],
         days: int
@@ -627,9 +641,12 @@ class ReflectionAnalyzer:
         cache_key = f"bad_cases_{days}_{len(bad_cases)}"
         if self._agent_config['cache_llm_results'] and cache_key in self._llm_cache:
             cached = self._llm_cache[cache_key]
-            cache_age = (datetime.now() - cached.get('_cached_at', datetime.min)).seconds
-            if cache_age < self._agent_config['llm_cache_ttl']:
-                return cached
+            cached_at = cached.get('_cached_at')
+            if cached_at is not None:
+                cache_age = (datetime.now() - cached_at).total_seconds()
+                if cache_age < self._agent_config['llm_cache_ttl']:
+                    self.logger.info(f"使用缓存的坏case分析结果")
+                    return cached
 
         try:
             # 准备数据
@@ -637,17 +654,16 @@ class ReflectionAnalyzer:
 
             # 构建 Prompt
             prompt = BAD_CASE_DEEP_ANALYSIS_PROMPT.format(
-                bad_cases=json.dumps(prepared_cases, ensure_ascii=False, indent=2),
+                bad_cases=_safe_dumps(prepared_cases, ensure_ascii=False, indent=2),
                 days=days,
                 total_cases=len(bad_cases)
             )
 
-            # 调用 LLM
-            response = self._sync_call_llm(prompt)
+            # 调用 LLM（直接 await）
+            response = await self._call_llm(prompt)
 
             if response:
                 result = json.loads(response)
-                result['total_cases'] = len(bad_cases)
                 result['_analysis_method'] = 'agent'
 
                 # 缓存
@@ -659,6 +675,9 @@ class ReflectionAnalyzer:
             else:
                 return self._analyze_bad_cases_with_rules(bad_cases, days)
 
+        except json.JSONDecodeError as e:
+            self.logger.error(f"LLM 返回格式错误: {e}")
+            return self._analyze_bad_cases_with_rules(bad_cases, days)
         except Exception as e:
             self.logger.error(f"Agent 坏case分析失败: {e}")
             return self._analyze_bad_cases_with_rules(bad_cases, days)

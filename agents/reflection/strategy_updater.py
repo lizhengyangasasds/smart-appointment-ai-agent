@@ -21,6 +21,8 @@ import json
 import logging
 import asyncio
 
+from .utils import _make_json_safe, _safe_dumps
+
 
 # ==================== Agent Prompt 模板 ====================
 
@@ -324,8 +326,8 @@ class StrategyUpdater:
 
             # 构建 Prompt
             prompt = STRATEGY_GENERATION_PROMPT.format(
-                insights=json.dumps(prepared_insights, ensure_ascii=False, indent=2),
-                current_strategies=json.dumps(current_strategies, ensure_ascii=False, indent=2)
+                insights=_safe_dumps(prepared_insights, ensure_ascii=False, indent=2),
+                current_strategies=_safe_dumps(current_strategies, ensure_ascii=False, indent=2)
             )
 
             # 调用 LLM
@@ -556,8 +558,8 @@ class StrategyUpdater:
 
             # 构建 Prompt
             prompt = AVOIDANCE_STRATEGY_GENERATION_PROMPT.format(
-                bad_case=json.dumps(bad_case, ensure_ascii=False, indent=2),
-                current_config=json.dumps(current_config, ensure_ascii=False, indent=2)
+                bad_case=_safe_dumps(bad_case, ensure_ascii=False, indent=2),
+                current_config=_safe_dumps(current_config, ensure_ascii=False, indent=2)
             )
 
             # 调用 LLM
@@ -800,9 +802,9 @@ class StrategyUpdater:
 
             # 构建 Prompt
             prompt = CONTEXTUAL_STRATEGY_PROMPT.format(
-                context=json.dumps(prepared_context, ensure_ascii=False, indent=2),
-                insights=json.dumps(insights, ensure_ascii=False, indent=2),
-                active_strategies=json.dumps(active_strategies, ensure_ascii=False, indent=2)
+                context=_safe_dumps(prepared_context, ensure_ascii=False, indent=2),
+                insights=_safe_dumps(insights, ensure_ascii=False, indent=2),
+                active_strategies=_safe_dumps(active_strategies, ensure_ascii=False, indent=2)
             )
 
             # 调用 LLM

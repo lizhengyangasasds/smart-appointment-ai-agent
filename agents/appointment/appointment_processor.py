@@ -101,38 +101,61 @@ class AppointmentProcessor:
         # 检查是否在等待用户确认推荐技师
         if appointment_history.get('awaiting_confirmation'):
             return self._handle_recommendation_response(appointment_history, data)
-        
+
         # 只更新有值的字段，避免覆盖之前的信息
         for key in ["duration", "gender", "start_time", "project", "technician_name"]:
             if data.get(key) and data[key] != "未知":
                 appointment_history[key] = data[key]
-        
+
         # preference特殊处理
         if data.get("preference") and data["preference"] != "未知":
             appointment_history["preference"] = data["preference"]
-        
+
         # 检查是否收集齐所有必需信息
         # 必需信息：时间、项目、时长
-        # 如果指定了技师名，则不需要性别；否则性别也是必需的
+        # 如果指定了"真实技师名"，则不需要性别；否则性别也是必需的
+        # 注意：technician_name 可能被 LLM 误填为描述性短语（如"手劲大的女技师"），
+        # 这种情况下应按"未指定技师"处理，让 gender 仍为必填。
         required_fields = ["start_time", "project", "duration"]
         technician_name = appointment_history.get("technician_name")
-        
-        if not technician_name or technician_name == "未知":
-            # 没有指定技师，需要性别来筛选
+
+        # 判断是否为真实姓名（避免被描述性短语误导）
+        real_name_provided = bool(
+            technician_name
+            and technician_name != "未知"
+            and self._looks_like_real_name(technician_name)
+        )
+
+        if not real_name_provided:
+            # 没有指定真实姓名，需要性别来筛选
             required_fields.append("gender")
-        
+
         has_all_required = all(
-            appointment_history.get(field) and appointment_history[field] != "未知" 
+            appointment_history.get(field) and appointment_history[field] != "未知"
             for field in required_fields
         )
-        
-        # 如果信息完整，但是指定的技师不可用且需要推荐，则不认为预约"完成"
-        if has_all_required and technician_name and technician_name != "未知":
+
+        # 如果信息完整，但是指定了真实姓名且不可用，则进入推荐流程
+        if has_all_required and real_name_provided:
             # 检查指定技师是否可用，如果不可用则进入推荐流程
             # 这个检查留到 handle_complete_appointment 中进行
             pass
-        
+
         return has_all_required
+
+    @staticmethod
+    def _looks_like_real_name(name: str) -> bool:
+        """
+        静态包装：复用 TechnicianFinder 的姓名校验，避免描述性短语被误识别为技师名。
+        """
+        try:
+            from .technician_finder import _looks_like_real_name as _check
+            return _check(name)
+        except Exception:
+            # 兜底：粗略规则
+            if not name or not isinstance(name, str):
+                return False
+            return 2 <= len(name.strip()) <= 4 and all('\u4e00' <= ch <= '\u9fff' for ch in name.strip())
 
     def _handle_recommendation_response(self, appointment_history: Dict[str, Any], data: Dict[str, Any]) -> bool:
         """处理用户对推荐技师的回应"""

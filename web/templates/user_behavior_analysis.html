@@ -361,8 +361,8 @@
             try {
                 console.log('开始加载用户分析数据...');
                 
-                // 使用与服务器一致的地址和端口
-                const apiUrl = 'http://127.0.0.1:8001/api/user-behavior/analysis';
+                // 使用同源 API，避免硬编码端口导致跨域问题
+                const apiUrl = `${window.location.origin}/api/user-behavior/analysis`;
                 console.log('调用API:', apiUrl);
                 
                 const response = await fetch(apiUrl, {
@@ -438,7 +438,7 @@
                 button.disabled = true;
                 button.classList.add('loading');
                 
-                const response = await fetch('http://127.0.0.1:8001/api/user-behavior/send-reminder', {
+                const response = await fetch(`${window.location.origin}/api/user-behavior/send-reminder`, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
