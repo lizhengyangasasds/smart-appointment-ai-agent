@@ -13,10 +13,13 @@ Agent 架构：
 - 保留规则引擎作为 fallback
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 import logging
 import json
+import re
+
+from .utils import _make_json_safe, _safe_dumps
 
 
 # ==================== Agent Prompt 模板 ====================
@@ -174,23 +177,14 @@ class ReflectionReporter:
         self._report_cache: Dict[str, Dict[str, Any]] = {}
 
     def _call_llm_sync(self, prompt: str, temperature: float = 0.3) -> Optional[str]:
-        """同步调用 LLM"""
+        """同步调用 LLM（直接用 sync invoke，避免 async 死锁）"""
         if not self.llm:
             return None
 
         try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run,
-                        self._call_llm_async(prompt, temperature)
-                    )
-                    return future.result(timeout=30)
-            else:
-                return asyncio.run(self._call_llm_async(prompt, temperature))
+            # 直接调用 sync invoke，httpx 会用同步模式，不阻塞事件循环
+            response = self.llm.invoke(prompt)
+            return response.content if hasattr(response, 'content') else str(response)
         except Exception as e:
             self.logger.error(f"同步 LLM 调用失败: {e}")
             return None
@@ -314,8 +308,8 @@ class ReflectionReporter:
         try:
             # 构建 Prompt
             prompt = POST_TASK_REPORT_PROMPT.format(
-                evaluation_result=json.dumps(evaluation_result, ensure_ascii=False, indent=2),
-                reflection_result=json.dumps(reflection_result, ensure_ascii=False, indent=2) if reflection_result else "{}"
+                evaluation_result=_safe_dumps(evaluation_result, ensure_ascii=False, indent=2),
+                reflection_result=_safe_dumps(reflection_result, ensure_ascii=False, indent=2) if reflection_result else "{}"
             )
 
             # 调用 LLM
@@ -428,11 +422,11 @@ class ReflectionReporter:
 
             # 构建 Prompt
             prompt = PERIODIC_REPORT_PROMPT.format(
-                data_summary=json.dumps(data_summary, ensure_ascii=False),
-                key_metrics=json.dumps(key_metrics, ensure_ascii=False, indent=2),
-                patterns=json.dumps(patterns, ensure_ascii=False, indent=2),
-                bad_cases_summary=json.dumps(bad_cases_summary, ensure_ascii=False, indent=2),
-                recommendations=json.dumps(recommendations[:10], ensure_ascii=False, indent=2),
+                data_summary=_safe_dumps(data_summary, ensure_ascii=False),
+                key_metrics=_safe_dumps(key_metrics, ensure_ascii=False, indent=2),
+                patterns=_safe_dumps(patterns, ensure_ascii=False, indent=2),
+                bad_cases_summary=_safe_dumps(bad_cases_summary, ensure_ascii=False, indent=2),
+                recommendations=_safe_dumps(recommendations[:10], ensure_ascii=False, indent=2),
                 current_date=datetime.now().strftime('%Y年%m月%d日')
             )
 
@@ -556,8 +550,8 @@ class ReflectionReporter:
 
             # 构建 Prompt
             prompt = USER_INSIGHT_REPORT_PROMPT.format(
-                behavior_data=json.dumps(behavior_data, ensure_ascii=False, indent=2),
-                feedback_data=json.dumps(feedback_data, ensure_ascii=False, indent=2),
+                behavior_data=_safe_dumps(behavior_data, ensure_ascii=False, indent=2),
+                feedback_data=_safe_dumps(feedback_data, ensure_ascii=False, indent=2),
                 current_date=datetime.now().strftime('%Y年%m月%d日')
             )
 
@@ -641,9 +635,9 @@ class ReflectionReporter:
         try:
             # 构建 Prompt
             prompt = DASHBOARD_SUMMARY_PROMPT.format(
-                today_stats=json.dumps(daily_stats, ensure_ascii=False),
-                week_stats=json.dumps(weekly_stats, ensure_ascii=False),
-                month_stats=json.dumps(monthly_stats, ensure_ascii=False)
+                today_stats=_safe_dumps(daily_stats, ensure_ascii=False),
+                week_stats=_safe_dumps(weekly_stats, ensure_ascii=False),
+                month_stats=_safe_dumps(monthly_stats, ensure_ascii=False)
             )
 
             # 调用 LLM
@@ -828,47 +822,65 @@ class ReflectionReporter:
 
         return "，".join(parts) if parts else "暂无数据"
 
-    def _calculate_key_metrics(self, reflections: List[Dict]) -> Dict[str, Any]:
-        """计算关键指标"""
+    @staticmethod
+    def _extract_success_info(reflection):
+        findings = reflection.get("findings") or {}
+        if not isinstance(findings, dict):
+            return False, 0.0
+        summary = findings.get("evaluation_summary") or {}
+        if isinstance(summary, dict) and ("success" in summary or "success_rate" in summary):
+            try:
+                raw_success = int(summary.get("success", 0))
+            except (TypeError, ValueError):
+                raw_success = 0
+            return raw_success >= 1, float(summary.get("success_rate", 0) or 0)
+        if "success" in findings or "success_rate" in findings:
+            try:
+                raw_success = int(findings.get("success", 0))
+            except (TypeError, ValueError):
+                raw_success = 0
+            return raw_success >= 1, float(findings.get("success_rate", 0) or 0)
+        key_metrics = findings.get("key_metrics") or []
+        if isinstance(key_metrics, list):
+            for km in key_metrics:
+                if not isinstance(km, dict):
+                    continue
+                text = str(km.get("finding") or "") + " " + str(km.get("evidence") or "")
+                m = re.search(r"成功率[^\d]*(\d+(?:\.\d+)?)\s*%", text)
+                if m:
+                    rate = float(m.group(1)) / 100.0
+                    return rate >= 0.5, rate
+        return False, 0.0
+
+    def _calculate_key_metrics(self, reflections):
         if not reflections:
-            return {
-                "total_reflections": 0,
-                "avg_success_rate": 0,
-                "improvement_trend": "no_data"
-            }
-
+            return {"total_reflections": 0, "avg_success_rate": 0, "improvement_trend": "no_data"}
         total = len(reflections)
-        success_count = sum(
-            1 for r in reflections
-            if r.get('findings', {}).get('success', False)
-        )
-
+        success_count = 0
+        rate_sum = 0.0
+        for r in reflections:
+            ok, rate = self._extract_success_info(r)
+            if ok:
+                success_count += 1
+            rate_sum += rate
         return {
             "total_reflections": total,
-            "success_rate": success_count / total if total > 0 else 0,
-            "avg_success_rate": round(
-                sum(r.get('findings', {}).get('success_rate', 0) for r in reflections) / total
-                if total > 0 else 0, 3
-            ),
+            "success_rate": round(success_count / total, 3) if total > 0 else 0,
+            "avg_success_rate": round(rate_sum / total, 3) if total > 0 else 0,
             "improvement_trend": self._calculate_trend(reflections)
         }
 
-    def _calculate_trend(self, reflections: List[Dict]) -> str:
-        """计算趋势"""
+    def _calculate_trend(self, reflections):
         if len(reflections) < 3:
             return "insufficient_data"
-
-        # 按时间排序
-        sorted_refs = sorted(reflections, key=lambda x: x.get('created_at', ''))
-
-        # 比较前半和后半的成功率
+        sorted_refs = sorted(reflections, key=lambda x: x.get("created_at", ""))
         mid = len(sorted_refs) // 2
         first_half = sorted_refs[:mid]
         second_half = sorted_refs[mid:]
-
-        first_rate = sum(r.get('findings', {}).get('success_rate', 0) for r in first_half) / len(first_half)
-        second_rate = sum(r.get('findings', {}).get('success_rate', 0) for r in second_half) / len(second_half)
-
+        first_rates = [self._extract_success_info(r)[1] for r in first_half]
+        second_rates = [self._extract_success_info(r)[1] for r in second_half]
+        first_rate = sum(first_rates) / len(first_rates) if first_rates else 0
+        second_rate = sum(second_rates) / len(second_rates) if second_rates else 0
         if second_rate > first_rate + 0.1:
             return "improving"
         elif second_rate < first_rate - 0.1:

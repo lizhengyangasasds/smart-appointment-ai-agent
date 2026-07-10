@@ -1,16 +1,6 @@
-"""
-简化的API模块
-# 创建API路由列表（用于注册到FastAPI应用）
-api_routers = [
-    appointment_router,
-    consultation_router,
-    task_router,
-    knowledge_router,
-    technician_router,
-    user_behavior_analysis_router,
-    user_behavior_analysis_underscore_router
-]心功能API
-管理员功能已移至scripts目录
+"""简化的API模块
+
+用于集中注册各业务子模块的 FastAPI 路由。
 """
 
 # 导入各业务模块的路由
@@ -25,7 +15,7 @@ from .memory import router as memory_router
 from .reflection_api import router as reflection_router
 from .bulk_knowledge import router as bulk_knowledge_router
 
-# 创建API路由列表（用于注册到FastAPI应用）
+# FastAPI 路由列表（按注册顺序统一挂载）
 api_routers = [
     appointment_router,
     consultation_router,
@@ -36,4 +26,5 @@ api_routers = [
     user_behavior_analysis_underscore_router,
     memory_router,
     reflection_router,
+    bulk_knowledge_router,
 ]

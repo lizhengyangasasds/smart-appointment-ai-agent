@@ -9,6 +9,7 @@
 5. 支持闭环反馈机制
 """
 
+import asyncio
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 from enum import Enum
@@ -168,21 +169,36 @@ class ReflectionEngine:
         """执行反思"""
         self.logger.info(f"执行反思: trigger={trigger_type.value}")
 
-        # 分析失败任务
+        # 分析失败任务（带超时保护）
         task_type = evaluation.get('task_type', 'unknown')
-        failed_analysis = self.analyzer.analyze_failed_tasks(
-            task_type=task_type,
-            days=7
-        )
+        try:
+            failed_analysis = await asyncio.wait_for(
+                self.analyzer.analyze_failed_tasks(task_type=task_type, days=7),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning("analyze_failed_tasks 超时，跳过")
+            failed_analysis = {"patterns": [], "root_causes": [], "summary": "分析超时"}
 
-        # 发现用户模式
-        pattern_analysis = self.analyzer.discover_user_patterns(
-            user_id="default_user",
-            days=30
-        )
+        # 发现用户模式（带超时保护）
+        try:
+            pattern_analysis = await asyncio.wait_for(
+                self.analyzer.discover_user_patterns(user_id="default_user", days=30),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning("discover_user_patterns 超时，跳过")
+            pattern_analysis = {"patterns": [], "summary": "分析超时"}
 
-        # 分析坏case
-        bad_case_analysis = self.analyzer.analyze_bad_cases(days=30)
+        # 分析坏case（带超时保护）
+        try:
+            bad_case_analysis = await asyncio.wait_for(
+                self.analyzer.analyze_bad_cases(days=30),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning("analyze_bad_cases 超时，跳过")
+            bad_case_analysis = {"total_cases": 0, "cases": [], "summary": "分析超时"}
 
         # 构建反思结果
         findings = {
@@ -240,12 +256,24 @@ class ReflectionEngine:
         # 生成周期性报告
         report = self.reporter.generate_periodic_report(days=days)
 
-        # 如果有反思仓库，保存反思记录
+        # 保存反思记录：把"事实"结构化进 findings，避免把整份 LLM 生成的报告
+        # 反向当作下次统计的输入（会进入自喂养死循环）。
         if self.reflection_repo:
+            findings_payload = {
+                "report_type": "periodic",
+                "period_days": days,
+                "summary": report.get("summary"),
+                "key_metrics": report.get("key_metrics"),
+                "success_rate": (report.get("key_metrics") or {}).get("success_rate") if isinstance(report.get("key_metrics"), dict) else None,
+                "bad_cases_summary": report.get("bad_cases_summary"),
+                "next_actions": report.get("next_actions"),
+                # 兼容旧字段：保留原始报告，便于历史查询 / 排障
+                "_legacy_report": report,
+            }
             self.reflection_repo.save_reflection(
                 session_id=f"periodic_{datetime.now().strftime('%Y%m%d')}",
                 reflection_type=ReflectionTrigger.PERIODIC.value,
-                findings=report
+                findings=findings_payload
             )
 
         return report
@@ -373,6 +401,43 @@ class ReflectionEngine:
             仪表盘数据
         """
         return self.reporter.generate_dashboard_summary()
+
+    def get_task_type_insights(self, task_type: str,
+                                days: int = 7) -> Dict[str, Any]:
+        """
+        获取指定任务类型的洞察（供 ContextProvider 使用）
+
+        Args:
+            task_type: 任务类型
+            days: 分析窗口天数
+
+        Returns:
+            任务类型洞察，包含 patterns / root_causes 等字段
+        """
+        if not self.analyzer:
+            return {"patterns": [], "root_causes": []}
+
+        try:
+            import concurrent.futures
+
+            def _sync_call():
+                # 在独立事件循环中运行 async 方法
+                import asyncio
+                return asyncio.run(
+                    self.analyzer.analyze_failed_tasks(task_type=task_type, days=days)
+                )
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                result = executor.submit(_sync_call).result(timeout=60)
+            return {
+                "patterns": result.get("patterns", []),
+                "root_causes": result.get("root_causes", []),
+                "summary": result.get("summary", ""),
+                "total_failed": result.get("total_failed", 0),
+            }
+        except Exception as e:
+            self.logger.warning(f"获取任务类型洞察失败: {e}")
+            return {"patterns": [], "root_causes": []}
 
     def _generic_evaluation(
         self,
