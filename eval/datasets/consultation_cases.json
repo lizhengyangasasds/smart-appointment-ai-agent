@@ -1,0 +1,58 @@
+[
+  {
+    "id": "cons_001",
+    "scenario": "营业时间",
+    "input": "你们店营业时间是几点？",
+    "expected": {"top_category": "营业时间"},
+    "turns": 1
+  },
+  {
+    "id": "cons_002",
+    "scenario": "营业时间（含换行）",
+    "input": "请问几点开门？",
+    "expected": {"top_category": "营业时间"},
+    "turns": 1
+  },
+  {
+    "id": "cons_003",
+    "scenario": "服务项目价格",
+    "input": "全身推拿多少钱一次？",
+    "expected": {"top_category": "服务项目"},
+    "turns": 1
+  },
+  {
+    "id": "cons_004",
+    "scenario": "服务项目咨询",
+    "input": "你们有哪些按摩项目？",
+    "expected": {"top_category": "服务项目"},
+    "turns": 1
+  },
+  {
+    "id": "cons_005",
+    "scenario": "技师信息",
+    "input": "你们的技师都有什么特点？",
+    "expected": {"top_category": "技师信息"},
+    "turns": 1
+  },
+  {
+    "id": "cons_006",
+    "scenario": "门店地址",
+    "input": "你们店在哪里？",
+    "expected": {"top_category": "门店地址"},
+    "turns": 1
+  },
+  {
+    "id": "cons_007",
+    "scenario": "预约政策",
+    "input": "预约后临时取消要扣费吗？",
+    "expected": {"top_category": "预约政策"},
+    "turns": 1
+  },
+  {
+    "id": "cons_008",
+    "scenario": "会员服务",
+    "input": "会员卡充值有优惠吗？",
+    "expected": {"top_category": "会员服务"},
+    "turns": 1
+  }
+]

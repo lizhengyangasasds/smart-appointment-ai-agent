@@ -1,0 +1,86 @@
+[
+  {
+    "id": "appt_001",
+    "scenario": "完整预约（明天下午2点，女技师，60分钟）",
+    "input": "我想预约明天下午2点的按摩，女技师，60分钟",
+    "expected": {"success": 2, "min_gender": "女"},
+    "turns": 1
+  },
+  {
+    "id": "appt_002",
+    "scenario": "完整预约（今天晚上8点，男技师，90分钟）",
+    "input": "今晚8点帮我约个男技师的全身推拿，90分钟",
+    "expected": {"success": 2, "min_gender": "男"},
+    "turns": 1
+  },
+  {
+    "id": "appt_003",
+    "scenario": "完整预约（指定技师张伟）",
+    "input": "帮我预约张伟技师，今天下午3点的肩颈按摩",
+    "expected": {"success": 2, "technician_name": "张伟"},
+    "turns": 1
+  },
+  {
+    "id": "appt_004",
+    "scenario": "完整预约（指定技师李娜）",
+    "input": "我想约李娜，明天下午4点，60分钟足疗",
+    "expected": {"success": 2, "technician_name": "李娜"},
+    "turns": 1
+  },
+  {
+    "id": "appt_005",
+    "scenario": "完整预约（只指定时间项目）",
+    "input": "明天上午10点的肩颈推拿",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_006",
+    "scenario": "性别偏好明确（女）",
+    "input": "请帮我约一位女技师，今天下午2点，足疗60分钟",
+    "expected": {"success": 2, "min_gender": "女"},
+    "turns": 1
+  },
+  {
+    "id": "appt_007",
+    "scenario": "性别偏好明确（男）",
+    "input": "想找个男技师，明天上午11点全身按摩60分钟",
+    "expected": {"success": 2, "min_gender": "男"},
+    "turns": 1
+  },
+  {
+    "id": "appt_008",
+    "scenario": "时间模糊（只说今天）",
+    "input": "今天想做个足疗，60分钟",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_009",
+    "scenario": "时间模糊（只说晚上）",
+    "input": "晚上想做个肩颈按摩，女技师",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_010",
+    "scenario": "描述当作技师（手劲大的女技师）",
+    "input": "想约个手劲大的女技师，明天上午10点，60分钟",
+    "expected": {"success": 2, "min_gender": "女"},
+    "turns": 1
+  },
+  {
+    "id": "appt_011",
+    "scenario": "描述当作技师（手法细腻）",
+    "input": "想约个手法细腻的技师，今天下午3点，60分钟肩颈",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_012",
+    "scenario": "无关请求（闲聊）",
+    "input": "今天北京天气怎么样",
+    "expected": {"success": 1, "unrelated": true},
+    "turns": 1
+  }
+]

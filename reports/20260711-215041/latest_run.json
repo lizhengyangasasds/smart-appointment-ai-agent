@@ -1,0 +1,94 @@
+{
+  "run_at": "2026-07-11T21:50:41",
+  "summary": [
+    {
+      "agent": "classifier",
+      "cases": 4,
+      "success_rate": 0.75,
+      "avg_latency_s": 1.9,
+      "avg_turns": 1,
+      "composite_score": 0.6,
+      "run_at": "20260711-215041"
+    }
+  ],
+  "detail": {
+    "classifier": [
+      {
+        "case_id": "cls_001",
+        "scenario": "明确预约意图",
+        "input": "我想预约明天上午10点的肩颈按摩",
+        "success": 1,
+        "latency_s": 2.3,
+        "turns": 1,
+        "expected": {
+          "task_type": "appointment"
+        },
+        "got": {
+          "task_type": "appointment"
+        },
+        "error": "",
+        "expected_should_reflect": false,
+        "got_should_reflect": false,
+        "reflection_log_written": false,
+        "bad_cases_non_empty": false
+      },
+      {
+        "case_id": "cls_002",
+        "scenario": "明确咨询意图",
+        "input": "你们店营业时间是几点？",
+        "success": 0,
+        "latency_s": 1.8,
+        "turns": 1,
+        "expected": {
+          "task_type": "query"
+        },
+        "got": {
+          "task_type": "other"
+        },
+        "error": "",
+        "expected_should_reflect": false,
+        "got_should_reflect": false,
+        "reflection_log_written": false,
+        "bad_cases_non_empty": false
+      },
+      {
+        "case_id": "cls_003",
+        "scenario": "无关请求",
+        "input": "你好",
+        "success": 1,
+        "latency_s": 1.5,
+        "turns": 1,
+        "expected": {
+          "task_type": "other"
+        },
+        "got": {
+          "task_type": "other"
+        },
+        "error": "",
+        "expected_should_reflect": false,
+        "got_should_reflect": false,
+        "reflection_log_written": false,
+        "bad_cases_non_empty": false
+      },
+      {
+        "case_id": "cls_004",
+        "scenario": "模糊边界",
+        "input": "按摩",
+        "success": 1,
+        "latency_s": 2.0,
+        "turns": 1,
+        "expected": {
+          "task_type": "appointment"
+        },
+        "got": {
+          "task_type": "appointment"
+        },
+        "error": "",
+        "expected_should_reflect": false,
+        "got_should_reflect": false,
+        "reflection_log_written": false,
+        "bad_cases_non_empty": false
+      }
+    ]
+  }
+}
