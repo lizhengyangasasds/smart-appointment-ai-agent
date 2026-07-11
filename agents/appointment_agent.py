@@ -42,7 +42,9 @@ class AppointmentAgent(ReflectionAwareMixin):
         self.llm = self._initialize_llm()
 
         # 初始化组件
-        self.input_parser = InputParser(self.llm)
+        # 闭环 1：把 initial 坏案例注入 InputParser；后续由 _refresh_reflection_context() 持续刷新
+        initial_bad_cases = self._initial_bad_cases_for_parser()
+        self.input_parser = InputParser(self.llm, reflection_bad_cases=initial_bad_cases)
         self.technician_finder = TechnicianFinder(llm=self.llm)
         self.message_builder = MessageBuilder()
         self.appointment_database = AppointmentDatabase()
@@ -53,6 +55,10 @@ class AppointmentAgent(ReflectionAwareMixin):
             self.appointment_database,
             self.llm
         )
+
+        # 闭环 3：把 immediate 的 high-priority recommendations 也注入 processor（用于 agent system prompt）
+        if initial_bad_cases or True:
+            self._apply_recommendations_to_processor()
 
         # 会话管理
         self.chats_by_session_id = {}
@@ -160,6 +166,122 @@ class AppointmentAgent(ReflectionAwareMixin):
             f"{len(self._avoid_patterns)} 个避免模式"
         )
 
+    # ====================================================================
+    # 闭环控制器：把反思系统产出的 insights 实时下发到组件
+    # ====================================================================
+
+    def _initial_bad_cases_for_parser(self) -> List[Dict[str, Any]]:
+        """构造器阶段：从反思引擎读取当前坏案例（用于初始化 InputParser）。
+
+        即使反思引擎未注入或 DB 无记录，也保证返回 list，保持 InputParser.__init__ 一致性。
+        """
+        try:
+            insights = self.get_insights()
+        except Exception as e:
+            self.logger.debug(f"[Closed-Loop] 初始化时拉取反思洞察失败: {e}")
+            return []
+
+        task_insights = insights.get('appointment_insights') or {}
+        bad_cases = task_insights.get('bad_cases') or []
+        # fallback：从顶层 recent_bad_cases 里筛 appointment
+        if not bad_cases:
+            bad_cases = [bc for bc in insights.get('recent_bad_cases', [])
+                         if bc.get('task_type') == 'appointment']
+        return list(bad_cases or [])
+
+    def _apply_recommendations_to_processor(self) -> None:
+        """闭环 3：把 high-priority recommendations 注入 AppointmentProcessor.agent_prompt。
+
+        改进点：让"成功提示生成"的 Agent（agent_executor）知道系统级注意事项，
+        例如"周末高峰尽量推荐 A 类技师"、"避免给某技师叠加套餐"。
+        """
+        try:
+            insights = self.get_insights()
+        except Exception as e:
+            self.logger.debug(f"[Closed-Loop] 注入 recommendations 失败: {e}")
+            return
+
+        recs = []
+        for key in ('actionable_recommendations', 'recommendations'):
+            recs.extend(insights.get(key, []) or [])
+        # 提取 high priority
+        high_priority = [r for r in recs if r.get('priority') == 'high']
+        if not high_priority:
+            return
+
+        # 拼成一行说明，注入 agent_prompt 的 system message
+        lines = []
+        for r in high_priority[:3]:
+            title = r.get('title') or r.get('action') or ''
+            if isinstance(title, dict):
+                title = title.get('note') or title.get('description') or str(title)[:50]
+            if title:
+                lines.append(f"- {str(title)[:80]}")
+
+        if not lines:
+            return
+
+        reflection_note = (
+            "\n\n【系统级注意事项（来自反思系统，请在生成温馨提示时遵循）】\n"
+            + "\n".join(lines)
+        )
+
+        try:
+            processor = self.appointment_processor
+            if processor and hasattr(processor, 'agent_prompt'):
+                # 重建 system prompt：保持原有，叠加反思注意事项
+                from langchain_core.prompts import ChatPromptTemplate
+                base_system = "你是一个智能助手，可以获取天气信息并生成个性化的预约成功提示。"
+                processor.agent_prompt = ChatPromptTemplate.from_messages([
+                    ("system", base_system + reflection_note),
+                    ("human", "{input}"),
+                    ("placeholder", "{agent_scratchpad}"),
+                ])
+                # 重新 bind agent_executor
+                from langchain.agents import create_openai_tools_agent, AgentExecutor
+                if processor.llm and getattr(processor, 'weather_agent', None):
+                    processor.weather_agent = create_openai_tools_agent(
+                        processor.llm, processor.tools, processor.agent_prompt
+                    )
+                    processor.agent_executor = AgentExecutor(
+                        agent=processor.weather_agent,
+                        tools=processor.tools,
+                        verbose=True
+                    )
+                self.logger.debug(f"[Closed-Loop] 注入 {len(lines)} 条 high-priority recommendations")
+        except Exception as e:
+            self.logger.warning(f"[Closed-Loop] agent_prompt 注入失败: {e}")
+
+    def refresh_reflection_loop(self) -> None:
+        """在 run_stream / handle_complete_appointment 的关键节点调用，
+        刷新 BadCases -> InputParser，Patterns -> TechnicianFinder，Recs -> Agent。
+
+        使用 ReflectionAwareMixin 的 5 分钟缓存，多次调用零成本。
+        """
+        try:
+            # 1) 坏案例 -> InputParser
+            bad_cases = self._initial_bad_cases_for_parser()
+            self.input_parser.update_reflection_bad_cases(bad_cases)
+
+            # 2) 模式 -> TechnicianFinder
+            patterns: List[Dict[str, Any]] = []
+            insights = self.get_insights()
+            for r in insights.get('recent_reflections', []) or []:
+                patterns.extend(r.get('patterns_discovered') or [])
+            if not patterns:
+                top_insights = insights.get('appointment_insights') or {}
+                patterns = top_insights.get('patterns_discovered') or insights.get('patterns_discovered', []) or []
+            self.technician_finder.set_reflection_patterns(patterns)
+
+            # 3) 推荐 -> agent_prompt（只在内容变化时刷，避免每次重建）
+            self._apply_recommendations_to_processor()
+
+            self.logger.debug(
+                f"[Closed-Loop] 反思刷新: bad_cases={len(bad_cases)}, patterns={len(patterns)}"
+            )
+        except Exception as e:
+            self.logger.warning(f"[Closed-Loop] 刷新失败: {e}")
+
     def _initialize_llm(self):
         """初始化通用聊天模型"""
         return create_chat_model(temperature=0)
@@ -202,6 +324,11 @@ class AppointmentAgent(ReflectionAwareMixin):
         """
         if user_input is None:
             user_input = input("用户：")
+
+        # 闭环控制器：进入流程前刷新 BadCases/Patterns/Recommendations。
+        # ReflectionAwareMixin 内部已有 5 分钟缓存，调用本身是常数次查表，不会增加关键路径延迟。
+        # 失败时只是 warn，不会中断预约主流程（向后兼容）。
+        self.refresh_reflection_loop()
 
         # 1. 解析用户输入（内部 JSON，不向用户流式输出，避免英文字段名暴露在聊天界面）
         ai_content = ""

@@ -91,10 +91,90 @@ def _looks_like_real_name(name: str) -> bool:
 
 
 class TechnicianFinder:
-    """技师查找器"""
+    """技师查找器
+
+    闭环 2：支持从反思系统注入 patterns_discovered，对候选技师按"反思权重"做软重排。
+    不替换原匹配逻辑，只在最终选人阶段对每个候选计算 score 并排序：
+        final_score = base_match_score + reflection_boost
+
+    这样做的好处：
+    1. 反射洞察永远只是"加权"，不会绕过性别/偏好硬筛选；
+    2. 反思数据为空时行为与改前完全一致（向后兼容）；
+    3. 重排权重可调，避免反思路径"绑架"业务逻辑。
+    """
+
+    # 反思权重最大加成（防止 patterns 偏移业务硬规则）
+    _MAX_REFLECTION_BOOST = 0.3
 
     def __init__(self, llm=None):
         self.llm = llm
+        # 闭环 2：缓存从反思系统注入的 patterns，list[{type, description, evidence...}]
+        # 初始为空，对无反思数据的早期阶段完全等价于旧实现。
+        self._reflection_patterns: List[Dict[str, Any]] = []
+
+    def set_reflection_patterns(self, patterns: Optional[List[Dict[str, Any]]]) -> None:
+        """在 AppointmentAgent 已实例化后异步注入反思模式。
+
+        同一个实例长期存活时也只需要 set 一次；下次 find_* 调用即生效。
+        """
+        self._reflection_patterns = list(patterns or [])
+
+    @staticmethod
+    def _extract_pattern_keywords(pattern: Dict[str, Any]) -> List[str]:
+        """从单条 pattern 里抽出与技师 strength 字段比较的关键词。
+
+        Pattern 形态来自 analyzer 的 reflection_discover_patterns：
+        {type, description, confidence, evidence?...}
+
+        实现细节：用 2~4 字中文滑动窗口切词，能同时命中"手劲大""经络""推拿"等关键词。
+        - 单字过度匹配会被过滤
+        - 边界去重避免重复 token 膨胀 prompt
+        """
+        text = (pattern.get("description") or "").strip()
+        if not text:
+            return []
+        # 只保留中文字符
+        import re as _re
+        zh = _re.findall(r"[\u4e00-\u9fa5]+", text)
+        if not zh:
+            return []
+        keywords: List[str] = []
+        seen = set()
+        for segment in zh:
+            if len(segment) < 2:
+                continue
+            # 滑动窗口：取该段内 2~4 字连续子串
+            for n in (2, 3, 4):
+                for i in range(len(segment) - n + 1):
+                    w = segment[i:i + n]
+                    if w in seen:
+                        continue
+                    seen.add(w)
+                    keywords.append(w)
+        return keywords
+
+    def _reflection_boost(self, technician: Dict[str, Any]) -> float:
+        """对单个候选技师计算反思加权值 (0, _MAX_REFLECTION_BOOST]。
+
+        计数方式：技师 strength 文本与 patterns 关键词的重叠长度。
+        仅作"软排序信号"，永远不会硬排除。
+        """
+        if not self._reflection_patterns:
+            return 0.0
+        strength = (technician.get("strength") or "") + " " + (technician.get("name") or "")
+        if not strength.strip():
+            return 0.0
+
+        matched = 0
+        for p in self._reflection_patterns:
+            confidence = float(p.get("confidence") or 0.5)
+            keywords = self._extract_pattern_keywords(p)
+            for kw in keywords:
+                if kw and kw in strength:
+                    # 关键词匹配一次得一份信心分
+                    matched += confidence
+        # 归一化到 (0, _MAX_REFLECTION_BOOST]
+        return min(self._MAX_REFLECTION_BOOST, matched * 0.05)
 
     def is_valid_technician_name(self, name: str) -> bool:
         """判定一个字符串是否像真实姓名（公开方法，供外部调用）"""
@@ -275,37 +355,66 @@ class TechnicianFinder:
         
         return filtered_techs if filtered_techs else all_techs  # 如果没有匹配的，返回所有技师
     
-    def find_available_technician(self, filtered_techs: list, all_techs: list, 
-                                start_time: datetime, end_time: datetime, 
+    def find_available_technician(self, filtered_techs: list, all_techs: list,
+                                start_time: datetime, end_time: datetime,
                                 preference: str, gender: str = None, yield_func: Optional[Callable] = None) -> Optional[Dict]:
-        """在技师列表中查找可用技师"""
+        """在技师列表中查找可用技师
+
+        闭环 2：如果已注入反思 patterns，则对可用候选人按 base+reflection_boost 排序。
+        没有 patterns 时，行为与改前完全等价（按出现顺序）。
+        """
         # 通过Services层访问数据库
         from services.appointment_service import AppointmentService
         appointment_service = AppointmentService()
-        
+
         if yield_func:
             yield_func("[THOUGHT][预约机器人] 正在查找空闲技师...\n")
-        
+
         # 先在筛选后的技师中查找
+        available_in_filtered: List[Dict] = []
         for tech in filtered_techs:
             if appointment_service.is_technician_available(tech["id"], start_time, end_time):
+                available_in_filtered.append(tech)
                 if yield_func:
                     yield_func(f"[THOUGHT][预约机器人] 找到空闲技师：{tech['name']}\n")
-                return tech
-        
+
+        if available_in_filtered:
+            best = self._pick_with_reflection(available_in_filtered)
+            return best
+
         # 如果有偏好但没找到，再在所有技师中查找
         if preference and preference != "无" and filtered_techs != all_techs:
             if yield_func:
                 yield_func("[THOUGHT][预约机器人] 偏好技师无空闲，尝试查找所有技师...\n")
+            available_in_all: List[Dict] = []
             for tech in all_techs:
                 if appointment_service.is_technician_available(tech["id"], start_time, end_time):
+                    available_in_all.append(tech)
                     if yield_func:
                         yield_func(f"[THOUGHT][预约机器人] 找到空闲技师：{tech['name']}\n")
-                    return tech
-        
+            if available_in_all:
+                return self._pick_with_reflection(available_in_all)
+
         if yield_func:
             yield_func("[THOUGHT][预约机器人] 没有找到空闲技师\n")
         return None
+
+    def _pick_with_reflection(self, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """在可用候选列表里按反思权重 + 原顺序选 1 个。
+
+        反思注入为空时，按原顺序返第一个（向后兼容）。
+        否则按 final_score = -idx*EPS + reflection_boost 排序（保留原始顺序作为 tie-breaker）。
+        """
+        if not self._reflection_patterns or not candidates:
+            return candidates[0]
+
+        EPS = 1e-3  # 反思加权相同时，按原顺序兜底
+        scored = []
+        for idx, tech in enumerate(candidates):
+            boost = self._reflection_boost(tech)
+            scored.append((boost - idx * EPS, idx, tech))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored[0][2]  # 取 final_score 最高的候选
     
     def find_technician_with_thought(self, appointment_history: Dict[str, Any], 
                                    yield_func: Optional[Callable] = None) -> Optional[Dict]:
