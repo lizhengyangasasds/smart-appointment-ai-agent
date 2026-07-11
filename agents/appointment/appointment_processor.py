@@ -192,11 +192,19 @@ class AppointmentProcessor:
         state,
         memory_context: str = "",
     ) -> AsyncGenerator[str, None]:
-        """处理与预约无关的请求"""
+        """处理与预约无关的请求
+
+        ⚠️ 关键：unrelated_callback 是 async 函数，同步调用拿到的是 coroutine，
+        必须 await 拿到结果。如果它返回字符串（直接 yield）或 async gen（yield token），
+        都要正确处理。历史上这里直接 yield coroutine 对象导致 callback 永不执行。
+        """
+        import inspect
         if unrelated_callback:
             try:
                 yield "[REPLY][预约机器人]和预约信息无关，已交给归类机器人处理\n"
                 result = unrelated_callback(user_input, memory_context)
+                if inspect.iscoroutine(result):
+                    result = await result
                 if hasattr(result, '__aiter__'):
                     async for token in result:
                         yield token
@@ -282,6 +290,14 @@ class AppointmentProcessor:
                 yield f"[REPLY][预约机器人]{result}"
         else:
             # 找不到任何技师档期：业务失败信号
+            # 关键：调用前再校验一次 technician_name，避免 LLM 误填的服务项目名
+            # （如"按摩服务"）进数据库查不到、抛出"未找到名为X的技师"的语义矛盾回复。
+            # 校验失败或为"未知"时，传 None 让 message_builder 走通用"没合适技师"分支。
+            from agents.appointment.input_parser import InputParser as _IP
+            if technician_name and technician_name != "未知" and not _IP._looks_like_real_name(technician_name):
+                # 同步把 appointment_history 也清掉，避免后续链路再读到脏数据
+                appointment_history["technician_name"] = "未知"
+                technician_name = None
             reply = self.message_builder.create_appointment_failure_message(technician_name)
             yield f"[REPLY][预约机器人]{reply}"
             yield "[EVAL_FAILED]reason=slot_unavailable"

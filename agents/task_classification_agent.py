@@ -78,18 +78,28 @@ class TaskClassificationAgent:
             yield token
 
     async def handle_unrelated(self, user_input, memory_context: str = ""):
-        """处理无关请求（同步版本）"""
+        """处理无关请求（同步版本）
+
+        ⚠️ 重要修复：历史上此方法会再次调用 process_task_stream 重新分类，
+        当 appointment_agent 在解析出 unrelated=True 时把请求回传到这里，
+        会形成 分类 → appointment → unrelated → 再次分类 的无限循环。
+        现在委托给 unrelated_handler 直接给出一段礼貌拒绝，不再次进入分类器。
+        """
         print(f"[DEBUG] 预约机器人转交的请求：{user_input}")
-        result = ""
-        async for token in self.classification_processor.process_task_stream(user_input, memory_context):
-            result += token
-        return result
+        reply = self.unrelated_handler._get_next_reply()
+        return f"[REPLY][归类机器人]{reply}"
 
     async def handle_unrelated_async(self, user_input, memory_context: str = ""):
-        """处理无关请求（异步流版本）"""
+        """处理无关请求（异步流版本）
+
+        ⚠️ 与 handle_unrelated 同样的循环修复：不再调 process_task_stream。
+        直接 yield 一段礼貌拒绝并结束。
+        """
         print(f"[DEBUG] 预约机器人转交的请求：{user_input}")
-        async for token in self.classification_processor.process_task_stream(user_input, memory_context):
-            yield token
+        reply = self.unrelated_handler._get_next_reply()
+        yield "[REPLY][归类机器人]"
+        for char in reply:
+            yield char
 
     # ===========================================
     # 扩展功能方法
