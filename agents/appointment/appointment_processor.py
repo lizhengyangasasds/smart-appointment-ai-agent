@@ -208,85 +208,94 @@ class AppointmentProcessor:
         else:
             yield self.message_builder.create_unrelated_message()
     
-    async def handle_complete_appointment(self, appointment_history: Dict[str, Any], 
+    async def handle_complete_appointment(self, appointment_history: Dict[str, Any],
                                         session_id: str) -> AsyncGenerator[str, None]:
         """处理预约信息完整的情况"""
-        # 检查是否用户拒绝了推荐
+        # 检查是否用户拒绝了推荐 → 业务失败信号，agent 端会写 FAILED(user_cancelled)
         if appointment_history.get('recommendation_declined'):
             reply = self.message_builder.create_recommendation_declined_message(self.llm)
             yield f"[REPLY][预约机器人]{reply}"
+            yield "[EVAL_FAILED]reason=user_cancelled"
             # 清理状态
             appointment_history.pop('recommendation_declined', None)
             appointment_history.pop('recommended_technician', None)
             appointment_history.pop('original_technician', None)
             return
-        
+
         # 检查是否用户确认了推荐技师
         if appointment_history.get('confirmed_technician'):
             tech = appointment_history['confirmed_technician']
             # 标记为推荐技师用于成功消息显示
             tech['is_recommendation'] = True
             tech['original_technician'] = appointment_history.get('original_technician')
-            reply = await self._process_successful_appointment(tech, appointment_history, session_id)
-            yield f"[REPLY][预约机器人]{reply}"
+            result = await self._process_successful_appointment(tech, appointment_history, session_id)
+            # _process_successful_appointment 已经返回带 [EVAL_OK]/[EVAL_FAILED] 前缀
+            yield f"[REPLY][预约机器人]{result}"
             # 清理状态
             appointment_history.pop('confirmed_technician', None)
             appointment_history.pop('recommended_technician', None)
             appointment_history.pop('original_technician', None)
             return
-        
+
         # 检查是否在等待用户确认推荐技师
         if appointment_history.get('awaiting_confirmation'):
-            # 用户回应不明确，重新询问
+            # 用户回应不明确，重新询问（不算失败，继续等待）
             yield f"[REPLY][预约机器人]\n机器人：请您明确回复\"是\"或\"不\"，我好为您安排预约。\n"
             return
-        
+
         # 收集思考过程
         thought_msgs = []
         def collect_thoughts(msg):
             thought_msgs.append(msg)
-        
+
         tech = self.technician_finder.find_technician_with_thought(appointment_history, collect_thoughts)
-        
+
         # 输出所有思考过程
         for msg in thought_msgs:
             yield msg
-        
+
         technician_name = appointment_history.get("technician_name")
-        
+
         if tech:
             # 检查是否是需要确认的推荐
             if tech.get('requires_confirmation'):
                 original_tech = tech.get('original_technician')
                 recommended_tech = tech.get('recommended_technician')
-                
+
                 # 生成推荐消息
                 recommendation_msg = self.message_builder.create_technician_recommendation_message(
                     original_tech, recommended_tech, appointment_history, self.llm
                 )
                 yield f"[REPLY][预约机器人]{recommendation_msg}"
-                
+
                 # 将推荐信息存储在预约历史中，等待用户确认
                 appointment_history['recommended_technician'] = recommended_tech
                 appointment_history['original_technician'] = original_tech
                 appointment_history['awaiting_confirmation'] = True
-                
+
                 # 重要：告诉调用方这个预约还没有真正完成，需要继续等待用户输入
                 yield "[SIGNAL]recommendation_pending"
                 return
             else:
                 # 正常预约流程
-                reply = await self._process_successful_appointment(tech, appointment_history, session_id)
-                yield f"[REPLY][预约机器人]{reply}"
+                result = await self._process_successful_appointment(tech, appointment_history, session_id)
+                yield f"[REPLY][预约机器人]{result}"
         else:
+            # 找不到任何技师档期：业务失败信号
             reply = self.message_builder.create_appointment_failure_message(technician_name)
             yield f"[REPLY][预约机器人]{reply}"
+            yield "[EVAL_FAILED]reason=slot_unavailable"
     
-    async def _process_successful_appointment(self, tech: Dict[str, Any], 
-                                           appointment_history: Dict[str, Any], session_id: str) -> str:
-        """处理预约成功的情况，并结合北京天气生成温馨提示"""
+    async def _process_successful_appointment(self, tech: Dict[str, Any],
+                                          appointment_history: Dict[str, Any], session_id: str) -> str:
+        """处理预约成功的情况，并结合北京天气生成温馨提示
+
+        返回值约定：appointment_agent 会解析首行前缀以决定评估结果：
+          "[EVAL_OK]<正文>"           —— 保存成功，agent 写入 SUCCESS 评估
+          "[EVAL_FAILED]reason=...<失败消息>" —— 保存失败，agent 写入 FAILED 评估
+        """
         start_time, end_time, duration_min = self.technician_finder.parse_time_and_duration(
-            appointment_history["start_time"], 
+            appointment_history["start_time"],
             appointment_history["duration"]
         )
         # 保存预约到数据库
@@ -302,14 +311,18 @@ class AppointmentProcessor:
                 try:
                     result = await self.agent_executor.ainvoke({"input": prompt})
                     agent_output = result.get("output", "")
-                    return f"\n机器人：已为您预约技师：{tech['name']}，性别：{tech['gender']}。预约成功！\n{agent_output}\n"
+                    body = f"\n机器人：已为您预约技师：{tech['name']}，性别：{tech['gender']}。预约成功！\n{agent_output}\n"
+                    return f"[EVAL_OK]\n{body}"
                 except Exception as e:
                     print(f"Agent调用失败: {e}")
-                    return self.message_builder.create_appointment_success_message(tech)
+                    return f"[EVAL_OK]\n{self.message_builder.create_appointment_success_message(tech)}"
             else:
-                return self.message_builder.create_appointment_success_message(tech)
+                return f"[EVAL_OK]\n{self.message_builder.create_appointment_success_message(tech)}"
         else:
-            return self.message_builder.create_save_failure_message()
+            # save_appointment 返回 False：让 agent 写入 FAILED 评估
+            # reason=database_error 是默认值；上游可以通过 appointment_database.save_appointment
+            # 抛 AppointmentSaveFailedError(reason='slot_unavailable') 提供更精确的原因
+            return f"[EVAL_FAILED]reason=database_error\n{self.message_builder.create_save_failure_message()}"
     
     async def handle_incomplete_info(self, data: Dict[str, Any], appointment_history: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """处理信息不完整的情况"""

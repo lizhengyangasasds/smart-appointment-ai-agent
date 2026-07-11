@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+import time
 import uuid
 import logging
 from typing import Dict, Any, List
@@ -12,6 +13,12 @@ from .appointment import (
     AppointmentDatabase
 )
 from .reflection import ReflectionAwareMixin
+from agents.reflection.evaluator import (
+    TaskEvaluator,
+    AppointmentSaveFailedError,
+    UserCancelledError,
+    AppointmentTimeoutError,
+)
 
 load_dotenv()
 
@@ -75,6 +82,20 @@ class AppointmentAgent(ReflectionAwareMixin):
         # 语义记忆服务（从外部注入，用于用户画像驱动的技师推荐）
         # 由 ChatHandler 在初始化时传入，AppointmentAgent 本身不持有 DB 依赖
         self.semantic_memory = semantic_memory
+
+        # 任务评估器（在 reflection_engine 存在时共享 evaluation_repo，
+        # 否则注入独立 EvaluationRepository，避免反射系统挂了阻塞主流程）
+        try:
+            from db.repositories.reflection_repository import EvaluationRepository
+            self._evaluator = TaskEvaluator(evaluation_repo=EvaluationRepository())
+        except Exception as _e:
+            self.logger.warning(f"TaskEvaluator 初始化失败（评估将不可用）: {_e}")
+            self._evaluator = None
+
+        # 任务评估上下文（在 run_stream 入口置零，出口消费）
+        self._task_start_ts: float = 0.0
+        self._task_turns: int = 0
+        self._task_session_started: bool = False
 
     def _enrich_history_from_memory(self) -> None:
         """
@@ -321,6 +342,11 @@ class AppointmentAgent(ReflectionAwareMixin):
         Args:
             user_input: 用户输入
             memory_context: 从 MemoryManager 注入的外部上下文（对话历史摘要+用户画像）
+
+        评估口径：
+            进入时记录 start_ts / turns_count，所有 return 前都会调
+            _evaluate_task_outcome() 落 task_evaluations 行。这一步是被动
+            记录，不阻塞用户可见流（即使评估写库失败也只 warn）。
         """
         if user_input is None:
             user_input = input("用户：")
@@ -330,60 +356,110 @@ class AppointmentAgent(ReflectionAwareMixin):
         # 失败时只是 warn，不会中断预约主流程（向后兼容）。
         self.refresh_reflection_loop()
 
+        # 评估通道：开始计时 + 累计轮数
+        self._task_start_ts = time.monotonic()
+        self._task_turns = self.chat_history.get_num_messages() // 2  # 一个 human+ai 算一轮
+        eval_signal: Dict[str, Any] = {"emitted": False}
+
+        def _record_eval(reason: str = "ok") -> None:
+            """供 finally 调用：集中评估当前任务并落库。
+            多重调用幂等（evaluator 内部按 success_level 判定）。
+            """
+            if eval_signal["emitted"]:
+                return
+            eval_signal["emitted"] = True
+            try:
+                self._evaluate_task_outcome(reason=reason)
+            except Exception as ev_err:
+                self.logger.warning(f"[Evaluator] 评估落库失败: {ev_err}")
+
         # 1. 解析用户输入（内部 JSON，不向用户流式输出，避免英文字段名暴露在聊天界面）
         ai_content = ""
-        for token in self.input_parser.parse_stream(user_input, self.chat_history, memory_context):
-            ai_content += token
-
         try:
-            # 2. 解析AI返回的数据
-            data = self.input_parser.parse_data(ai_content)
-            self.finished = self.appointment_processor.update_history_from_data(self.appointment_history, data)
-            
-            # 3. 处理与预约无关的请求
-            # 如果正在等待用户确认推荐技师，不要转交给归类机器人
-            if data.get("unrelated", False) and not self.appointment_history.get('awaiting_confirmation'):
-                # 注意：这里不清空预约历史，保留用户已输入的信息
-                # 只设置状态为CLASSIFY，让系统转交给其他机器人处理
-                if self.state:
-                    from config.constants import StateEnum
-                    self.state.value = StateEnum.CLASSIFY
-                
-                async for token in self.appointment_processor.handle_unrelated_request(
-                    user_input, self.unrelated_callback, self.state, memory_context
-                ):
-                    yield token
-                return
-            
-            # 4. 处理预约完成的情况
-            if self.finished:
-                # 用语义记忆补充预约历史，使推荐链路感知用户长期偏好
-                # 只补充空字段，本次会话信息优先级高于记忆
-                self._enrich_history_from_memory()
+            for token in self.input_parser.parse_stream(user_input, self.chat_history, memory_context):
+                ai_content += token
 
-                recommendation_pending = False
-                async for token in self.appointment_processor.handle_complete_appointment(
-                    self.appointment_history, self.session_id
-                ):
-                    # 检查是否有推荐等待确认
-                    if token == "[SIGNAL]recommendation_pending":
-                        recommendation_pending = True
-                        # 将 finished 设为 False，让预约流程继续
-                        self.finished = False
-                        continue
+            try:
+                # 2. 解析AI返回的数据
+                data = self.input_parser.parse_data(ai_content)
+                self.finished = self.appointment_processor.update_history_from_data(self.appointment_history, data)
+
+                # 3. 处理与预约无关的请求
+                # 如果正在等待用户确认推荐技师，不要转交给归类机器人
+                if data.get("unrelated", False) and not self.appointment_history.get('awaiting_confirmation'):
+                    # 注意：这里不清空预约历史，保留用户已输入的信息
+                    # 只设置状态为CLASSIFY，让系统转交给其他机器人处理
+                    if self.state:
+                        from config.constants import StateEnum
+                        self.state.value = StateEnum.CLASSIFY
+
+                    async for token in self.appointment_processor.handle_unrelated_request(
+                        user_input, self.unrelated_callback, self.state, memory_context
+                    ):
+                        yield token
+                    _record_eval("unrelated")
+                    return
+
+                # 4. 处理预约完成的情况
+                if self.finished:
+                    # 用语义记忆补充预约历史，使推荐链路感知用户长期偏好
+                    # 只补充空字段，本次会话信息优先级高于记忆
+                    self._enrich_history_from_memory()
+
+                    recommendation_pending = False
+                    eval_reason = "ok"  # 默认成功；如果看到 EVAL_FAILED 信号再覆盖
+                    async for token in self.appointment_processor.handle_complete_appointment(
+                        self.appointment_history, self.session_id
+                    ):
+                        if token == "[SIGNAL]recommendation_pending":
+                            recommendation_pending = True
+                            # 将 finished 设为 False，让预约流程继续
+                            self.finished = False
+                            continue
+                        if isinstance(token, str) and token.startswith("[EVAL_OK]"):
+                            eval_reason = "ok"
+                            continue
+                        if isinstance(token, str) and token.startswith("[EVAL_FAILED]"):
+                            # 提取 reason= 部分
+                            head = token.split("\n", 1)[0]
+                            reason = head.replace("[EVAL_FAILED]", "").strip()
+                            if reason.startswith("reason="):
+                                reason = reason[len("reason="):]
+                            eval_reason = reason or "appointment_failed"
+                            continue
+                        # 把 "[EVAL_OK]" / "[EVAL_FAILED]" 两种 token 移除，不再 yield 给用户
+                        if token in ("[EVAL_OK]", "[EVAL_FAILED]"):
+                            continue
+                        yield token
+
+                    # 只有在真正完成预约时才重置状态
+                    if not recommendation_pending and not self.appointment_history.get('awaiting_confirmation'):
+                        self._reset_state_after_appointment()
+                    # 推荐等待确认时不记评估（任务尚未结束）
+                    if not recommendation_pending and not self.appointment_history.get('awaiting_confirmation'):
+                        _record_eval(eval_reason)
+                    return
+
+                # 5. 处理信息不完整的情况：未结束，记为 in_progress（不算失败，
+                #    等用户补齐或下次评估；此处评估为空 PARTIAL/incomplete）
+                async for token in self.appointment_processor.handle_incomplete_info(data, self.appointment_history):
                     yield token
-                
-                # 只有在真正完成预约时才重置状态
-                if not recommendation_pending and not self.appointment_history.get('awaiting_confirmation'):
-                    self._reset_state_after_appointment()
+                # 这里不调 _record_eval，因为任务尚未结束；
+                # 后续每次 run_stream 都会重新开始计时并累计轮数。
                 return
-            
-            # 5. 处理信息不完整的情况
-            async for token in self.appointment_processor.handle_incomplete_info(data, self.appointment_history):
-                yield token
-                
-        except Exception as e:
-            yield self.message_builder.create_parse_error_message()
+
+            except Exception as e:
+                # 解析异常 / 解析后分发异常：业务失败，记 parse_error
+                self.logger.warning(f"[Appointment] parse/dispatch 异常: {e}")
+                yield self.message_builder.create_parse_error_message()
+                _record_eval("parse_error")
+                return
+
+        except Exception as outer_e:
+            # 外层异常（input_parser.parse_stream 抛错）：LLM 错误，记 llm_error
+            self.logger.error(f"[Appointment] run_stream 外层异常: {outer_e}")
+            _record_eval("llm_error")
+            return
 
     def _reset_state_after_appointment(self):
         """预约完成后重置状态"""
@@ -391,6 +467,80 @@ class AppointmentAgent(ReflectionAwareMixin):
         if self.state:
             from config.constants import StateEnum
             self.state.value = StateEnum.CLASSIFY
+
+    # ====================================================================
+    # 评估通道：把每一次 run_stream 的结果落到 task_evaluations
+    # ====================================================================
+
+    def _evaluate_task_outcome(self, reason: str = "ok") -> None:
+        """落一次 task_evaluations 行。
+
+        调用时机：
+        - reason='ok'                    预约全流程成功（保存到 DB）
+        - reason='slot_unavailable'      找不到技师档期
+        - reason='database_error'        save_appointment 返回 False
+        - reason='user_cancelled'        用户拒绝推荐技师
+        - reason='parse_error'           input_parser.parse_data 异常
+        - reason='llm_error'             LLM 调用异常
+        - reason='unrelated'             用户问非预约问题（不算失败，记 PARTIAL）
+
+        该函数不抛异常给外层（包 try/except），评估系统挂了不影响预约主流程。
+        """
+        if not self._evaluator:
+            return
+
+        # 完成时间：用 _task_start_ts 算
+        completion_time = (
+            time.monotonic() - self._task_start_ts
+            if self._task_start_ts > 0 else None
+        )
+
+        # 把 reason 转成 evaluator 理解的 error
+        err_obj: Any = None
+        if reason in ('slot_unavailable', 'database_error'):
+            err_obj = AppointmentSaveFailedError(reason=reason, message=reason)
+        elif reason == 'user_cancelled':
+            err_obj = UserCancelledError()
+        elif reason == 'parse_error':
+            err_obj = ValueError('parse error in appointment')
+        elif reason == 'llm_error':
+            err_obj = RuntimeError('llm error in appointment')
+        elif reason == 'timeout':
+            err_obj = AppointmentTimeoutError()
+
+        # evaluator 的 evaluate_appointment_task 是 async def 但函数体内没有 await，
+        # 通过 inspect 不阻塞地直接调用即可
+        try:
+            import asyncio as _asyncio
+            coro = self._evaluator.evaluate_appointment_task(
+                session_id=self.session_id,
+                appointment_history=self.appointment_history,
+                turns_count=self._task_turns,
+                completion_time=completion_time,
+                error=err_obj,
+            )
+            try:
+                loop = _asyncio.get_event_loop()
+                if loop.is_running():
+                    # 已有 loop 跑着：在线程里同步跑完
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                        result = ex.submit(
+                            _asyncio.run,
+                            coro
+                        ).result(timeout=10)
+                else:
+                    result = loop.run_until_complete(coro)
+            except RuntimeError:
+                result = _asyncio.run(coro)
+
+            self.logger.debug(
+                f"[Evaluator] 落库 ok reason={reason} "
+                f"success_level={result.get('success_level')} "
+                f"success_rate={result.get('success_rate')}"
+            )
+        except Exception as e:
+            self.logger.warning(f"[Evaluator] 调用失败: {e}")
 
     def validate_technician_recommendation(
         self,

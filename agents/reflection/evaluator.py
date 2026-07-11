@@ -21,6 +21,34 @@ class SuccessLevel(IntEnum):
     SUCCESS = 2      # 完全成功
 
 
+# =========================================================================
+# 业务语义异常：让 TaskEvaluator 收到的 error 不只是 Python 异常，
+# 还可以是预约链路里自定义的业务失败。_classify_business_error 会映射到
+# error_type 列，且这些异常的 str(error) 一定包含分类关键词，
+# 旧的 _classify_error 字符串匹配也能兜底。
+# =========================================================================
+
+class AppointmentSaveFailedError(Exception):
+    """预约保存失败（数据库写失败 / slot 冲突 / 已被抢）"""
+    def __init__(self, message: str = "appointment save failed", reason: str = "database_error"):
+        super().__init__(message)
+        self.reason = reason  # 透传给 error_type，例如 slot_unavailable / database_error
+
+
+class UserCancelledError(Exception):
+    """用户主动取消预约（用户说"算了"、"不预约了"等）"""
+    def __init__(self, message: str = "user cancelled appointment"):
+        super().__init__(message)
+        self.reason = "user_cancelled"
+
+
+class AppointmentTimeoutError(Exception):
+    """预约流程超时（LLM 调用超时 / 用户长时间未响应）"""
+    def __init__(self, message: str = "appointment timeout", reason: str = "timeout"):
+        super().__init__(message)
+        self.reason = reason
+
+
 class TaskEvaluator:
     """任务评估器"""
 
@@ -66,7 +94,8 @@ class TaskEvaluator:
         if error:
             success = SuccessLevel.FAILED
             success_rate = 0.0
-            error_type = self._classify_error(error)
+            # 优先用业务异常的 reason 字段，得到更精确的 error_type
+            error_type = self._classify_business_error(error) or self._classify_error(error)
         elif completion_rate >= 1.0:
             success = SuccessLevel.SUCCESS
             success_rate = 1.0
@@ -147,7 +176,7 @@ class TaskEvaluator:
         if error:
             success = SuccessLevel.FAILED
             success_rate = 0.0
-            error_type = self._classify_error(error)
+            error_type = self._classify_business_error(error) or self._classify_error(error)
         elif knowledge_hit and answer_quality >= 0.7:
             success = SuccessLevel.SUCCESS
             success_rate = max(answer_quality, 0.8)
@@ -221,7 +250,7 @@ class TaskEvaluator:
         if error:
             success = SuccessLevel.FAILED
             success_rate = 0.0
-            error_type = self._classify_error(error)
+            error_type = self._classify_business_error(error) or self._classify_error(error)
         elif correctly_classified:
             success = SuccessLevel.SUCCESS
             success_rate = 1.0
@@ -303,6 +332,19 @@ class TaskEvaluator:
             return 'auth_error'
         else:
             return 'unknown_error'
+
+    def _classify_business_error(self, error: Exception) -> Optional[str]:
+        """识别业务自定义异常（如 AppointmentSaveFailedError）。
+
+        返回 None 让上游 fallback 到 _classify_error。
+        """
+        if isinstance(error, AppointmentSaveFailedError):
+            return error.reason or 'database_error'
+        if isinstance(error, UserCancelledError):
+            return error.reason or 'user_cancelled'
+        if isinstance(error, AppointmentTimeoutError):
+            return error.reason or 'timeout'
+        return None
 
     def update_thresholds(self, **kwargs):
         """更新反思触发阈值"""
