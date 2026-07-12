@@ -1,0 +1,58 @@
+[
+  {
+    "id": "cls_001",
+    "scenario": "明确预约意图",
+    "input": "我想预约明天上午10点的肩颈按摩",
+    "expected": {"task_type": "appointment"},
+    "turns": 1
+  },
+  {
+    "id": "cls_002",
+    "scenario": "明确预约意图（口语化）",
+    "input": "帮我约一下今晚8点的足疗",
+    "expected": {"task_type": "appointment"},
+    "turns": 1
+  },
+  {
+    "id": "cls_003",
+    "scenario": "明确咨询意图",
+    "input": "你们店营业时间是几点？",
+    "expected": {"task_type": "query"},
+    "turns": 1
+  },
+  {
+    "id": "cls_004",
+    "scenario": "明确咨询意图（项目相关）",
+    "input": "肩颈推拿多少钱一次？",
+    "expected": {"task_type": "query"},
+    "turns": 1
+  },
+  {
+    "id": "cls_005",
+    "scenario": "无关请求（闲聊）",
+    "input": "今天天气怎么样？",
+    "expected": {"task_type": "other"},
+    "turns": 1
+  },
+  {
+    "id": "cls_006",
+    "scenario": "无关请求（寒暄）",
+    "input": "你好",
+    "expected": {"task_type": "other"},
+    "turns": 1
+  },
+  {
+    "id": "cls_007",
+    "scenario": "模糊边界（单字按摩，可能预约也可能咨询）",
+    "input": "按摩",
+    "expected": {"task_type": "appointment"},
+    "turns": 1
+  },
+  {
+    "id": "cls_008",
+    "scenario": "模糊边界（想咨询技师信息）",
+    "input": "技师",
+    "expected": {"task_type": "query"},
+    "turns": 1
+  }
+]

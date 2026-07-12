@@ -1,0 +1,110 @@
+[
+  {
+    "id": "refl_001",
+    "scenario": "完全成功的预约（不触发反思）",
+    "input": "fixture: complete appointment",
+    "input_fixture": {
+      "appointment_history": {
+        "gender": "女",
+        "start_time": "2026-07-12 14:00:00",
+        "duration": "60",
+        "project": "肩颈按摩"
+      },
+      "turns_count": 4,
+      "completion_time": 35.0,
+      "error_type": null
+    },
+    "expected": {"should_reflect": false, "success_level": "SUCCESS"},
+    "turns": 1
+  },
+  {
+    "id": "refl_002",
+    "scenario": "失败预约（时段被占用，触发反思）",
+    "input": "fixture: slot_unavailable",
+    "input_fixture": {
+      "appointment_history": {
+        "gender": "女",
+        "start_time": "2026-07-12 15:00:00",
+        "duration": "60",
+        "project": "肩颈按摩"
+      },
+      "turns_count": 5,
+      "completion_time": 60.0,
+      "error_type": "slot_unavailable"
+    },
+    "expected": {"should_reflect": true, "success_level": "FAILED", "error_type": "slot_unavailable"},
+    "turns": 1
+  },
+  {
+    "id": "refl_003",
+    "scenario": "部分成功（轮数过多，触发反思）",
+    "input": "fixture: turns_count=15",
+    "input_fixture": {
+      "appointment_history": {
+        "gender": "女",
+        "start_time": "2026-07-12 15:00:00",
+        "duration": "60",
+        "project": "肩颈按摩"
+      },
+      "turns_count": 15,
+      "completion_time": 80.0,
+      "error_type": null
+    },
+    "expected": {"should_reflect": true, "success_level": "SUCCESS"},
+    "turns": 1
+  },
+  {
+    "id": "refl_004",
+    "scenario": "超时预约（completion_time > 120s，触发反思）",
+    "input": "fixture: completion_time=180s",
+    "input_fixture": {
+      "appointment_history": {
+        "gender": "男",
+        "start_time": "2026-07-12 20:00:00",
+        "duration": "90",
+        "project": "全身按摩"
+      },
+      "turns_count": 6,
+      "completion_time": 180.0,
+      "error_type": null
+    },
+    "expected": {"should_reflect": true, "success_level": "SUCCESS"},
+    "turns": 1
+  },
+  {
+    "id": "refl_005",
+    "scenario": "低完成率（<50% 字段，触发反思）",
+    "input": "fixture: low completion rate",
+    "input_fixture": {
+      "appointment_history": {
+        "gender": "女",
+        "start_time": null,
+        "duration": null,
+        "project": null
+      },
+      "turns_count": 2,
+      "completion_time": 10.0,
+      "error_type": null
+    },
+    "expected": {"should_reflect": true, "success_level": "FAILED", "error_type": "low_completion"},
+    "turns": 1
+  },
+  {
+    "id": "refl_006",
+    "scenario": "LLM 错误（触发反思，error_type=llm_error）",
+    "input": "fixture: llm_error",
+    "input_fixture": {
+      "appointment_history": {
+        "gender": "女",
+        "start_time": "2026-07-12 16:00:00",
+        "duration": "60",
+        "project": "足疗"
+      },
+      "turns_count": 3,
+      "completion_time": 25.0,
+      "error_type": "llm_error"
+    },
+    "expected": {"should_reflect": true, "success_level": "FAILED", "error_type": "llm_error"},
+    "turns": 1
+  }
+]

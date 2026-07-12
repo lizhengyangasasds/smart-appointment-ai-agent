@@ -1,0 +1,5 @@
+case_id,scenario,input,expected,got,success,latency_s,turns,error,expected_should_reflect,got_should_reflect,reflection_log_written,bad_cases_non_empty
+cls_001,明确预约意图,我想预约明天上午10点的肩颈按摩,"{""task_type"": ""appointment""}","{""task_type"": ""appointment""}",1,2.3,1,,False,False,False,False
+cls_002,明确咨询意图,你们店营业时间是几点？,"{""task_type"": ""query""}","{""task_type"": ""other""}",0,1.8,1,,False,False,False,False
+cls_003,无关请求,你好,"{""task_type"": ""other""}","{""task_type"": ""other""}",1,1.5,1,,False,False,False,False
+cls_004,模糊边界,按摩,"{""task_type"": ""appointment""}","{""task_type"": ""appointment""}",1,2.0,1,,False,False,False,False

@@ -1,0 +1,29 @@
+feat: 增强咨询行为记录，支持RAG评估闭环
+
+主要改进：
+1. consultation_processor.py - 增强 _record_consultation_behavior 方法
+   - 新增 doc_scores 字段记录每条文档的相似度分数
+   - 新增 doc_ids 字段追踪具体使用的文档
+   - 新增 user_id 关联（从 session_id 解析）
+   - 新增 response_content 字段记录回答内容
+   - 新增 max_score/avg_score 分数统计
+   - 添加响应内容清理方法（去除流式输出前缀）
+
+2. user_behavior_repository.py - 新增咨询数据查询方法
+   - get_consultation_behaviors: 支持分数过滤的查询
+   - get_consultation_statistics: 咨询统计信息
+   - get_high_score_low_quality_consultations: 高分但可能低质量的案例
+   - get_user_consultation_history: 用户咨询历史
+
+3. 新增测试文件
+   - test_task_evaluator.py: 任务评估逻辑测试
+   - test_strategy_updater.py: 策略生成测试
+   - test_closed_loop_evaluator.py: 闭环效果计算测试
+   - test_error_classification.py: 错误分类测试
+   - test_reflection_integration.py: 端到端集成测试
+   - test_effectiveness.py: 效果验证测试
+
+这些改进使得可以：
+- 分析"高分但答错"的情况（RAG质量问题）
+- 做用户级别的行为分析
+- 端到端评估生成质量

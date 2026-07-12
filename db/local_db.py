@@ -9,6 +9,48 @@ from .repositories import UserBehaviorRepository, TechnicianRepository
 from .base import SessionManager
 from typing import Dict, List, Any, Optional
 import warnings
+from contextlib import contextmanager
+
+
+# 进程内共享一个 SessionManager，避免每次调用都新建连接池
+_default_session_manager: Optional[SessionManager] = None
+
+
+def _get_default_session_manager() -> SessionManager:
+    global _default_session_manager
+    if _default_session_manager is None:
+        _default_session_manager = SessionManager()
+    return _default_session_manager
+
+
+@contextmanager
+def get_db_session():
+    """向后兼容的会话上下文管理器（thread/process 级单例 SessionManager）。
+
+    行为：
+      - 进入 with 块时 yield session
+      - 块内由调用方自行 session.commit()（与旧用法一致）
+      - 块退出遇异常 → 自动 rollback；正常退出仅 close
+      - 不像 SessionManager.session_scope() 那样自动 commit（那里会自动 commit）
+
+    这样 `reflection_repository.py` 等沿用 `with get_db_session() as session: ... session.commit()`
+    的旧代码无须改动即可继续工作。
+    """
+    sm = _get_default_session_manager()
+    session = sm.Session()
+    try:
+        yield session
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
 
 
 class LocalUserBehaviorDB:

@@ -1,25 +1,220 @@
 """
-反思报告生成器 - 生成各类反思报告和建议
+反思报告生成器（Agent 驱动版）- 生成各类反思报告和建议
 
 核心功能：
-1. 生成单次任务反思报告
-2. 生成周期性反思报告
+1. 生成单次任务反思报告（Agent 驱动）
+2. 生成周期性反思报告（Agent 驱动）
 3. 生成用户回访建议
-4. 生成策略优化建议
+4. 生成策略优化建议（Agent 驱动）
+
+Agent 架构：
+- 使用 LLM 生成自然语言报告内容
+- 使用 LLM 进行数据解读和洞察提取
+- 保留规则引擎作为 fallback
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 import logging
+import json
+import re
+
+from .utils import _make_json_safe, _safe_dumps
+
+
+# ==================== Agent Prompt 模板 ====================
+
+POST_TASK_REPORT_PROMPT = """你是一个专业的系统分析师。请基于任务评估结果，生成一段反思报告。
+
+评估结果：
+{evaluation_result}
+
+反思结果（如果有）：
+{reflection_result}
+
+生成要求：
+1. 用自然语言描述任务的执行情况
+2. 指出关键的成功因素或失败原因
+3. 提出具体的改进建议
+4. 语气专业但易于理解
+5. 字数控制在 100-150 字
+
+返回JSON格式：
+{{
+    "summary": "任务总结（一句话）",
+    "analysis": "详细分析（3-5句话）",
+    "key_insight": "核心洞察",
+    "improvement_suggestions": ["建议1", "建议2", "建议3"]
+}}
+"""
+
+PERIODIC_REPORT_PROMPT = """你是一个运营分析专家。请基于以下周期性反思数据，生成一份综合报告。
+
+数据摘要：
+{data_summary}
+
+关键指标：
+{key_metrics}
+
+发现的模式：
+{patterns}
+
+坏case汇总：
+{bad_cases_summary}
+
+建议列表：
+{recommendations}
+
+当前日期：{current_date}
+
+生成要求：
+1. 整体评估系统当前状态
+2. 突出最重要的发现
+3. 按优先级排列改进建议
+4. 提供具体的行动项
+5. 用数据支持结论
+
+返回JSON格式：
+{{
+    "executive_summary": "执行摘要（2-3句话）",
+    "key_findings": [
+        {{"finding": "发现描述", "impact": "影响程度", "evidence": "证据"}}
+    ],
+    "priority_actions": [
+        {{"action": "行动描述", "priority": "high/medium/low", "expected_impact": "预期效果"}}
+    ],
+    "risk_alerts": ["风险提示1", "风险提示2"],
+    "overall_health_score": 0.0-1.0,
+    "trend_assessment": "上升/稳定/下降"
+}}
+"""
+
+USER_INSIGHT_REPORT_PROMPT = """你是一个用户洞察专家。请分析以下用户数据，生成用户洞察报告。
+
+用户行为数据：
+{behavior_data}
+
+用户反馈数据：
+{feedback_data}
+
+当前日期：{current_date}
+
+生成要求：
+1. 分析用户的价值和潜力
+2. 识别用户的偏好和痛点
+3. 提出个性化服务建议
+4. 预测用户流失风险
+5. 给出用户激活策略
+
+返回JSON格式：
+{{
+    "user_profile": {{
+        "value_tier": "高价值/中等价值/低价值/沉睡",
+        "engagement_level": "高/中/低",
+        "churn_risk": "high/medium/low"
+    }},
+    "preferences": {{
+        "technician": "技师偏好描述",
+        "service": "服务偏好描述",
+        "time": "时间偏好描述"
+    }},
+    "pain_points": ["痛点1", "痛点2"],
+    "retention_strategy": "留存策略描述",
+    "personalized_tips": ["个性化建议1", "个性化建议2"]
+}}
+"""
+
+DASHBOARD_SUMMARY_PROMPT = """你是一个数据可视化专家。请基于以下数据，生成一份仪表盘摘要。
+
+今日数据：{today_stats}
+本周数据：{week_stats}
+本月数据：{month_stats}
+
+生成要求：
+1. 用简洁的语言描述当前状态
+2. 突出需要关注的问题
+3. 提供快速可执行的洞察
+4. 格式适合前端展示
+
+返回JSON格式：
+{{
+    "headline": "一句话总结",
+    "highlights": ["要点1", "要点2", "要点3"],
+    "alerts": [
+        {{"level": "warning/critical", "message": "告警消息", "action": "建议行动"}}
+    ],
+    "trend_indicators": {{
+        "users": "up/down/stable",
+        "satisfaction": "up/down/stable",
+        "efficiency": "up/down/stable"
+    }},
+    "quick_actions": ["快速行动1", "快速行动2"]
+}}
+"""
 
 
 class ReflectionReporter:
-    """反思报告生成器"""
+    """
+    反思报告生成器（Agent 驱动版）
+    """
 
     def __init__(self, llm=None, reflection_repo=None):
         self.llm = llm
         self.reflection_repo = reflection_repo
         self.logger = logging.getLogger(__name__)
+
+        # Agent 配置
+        self._agent_config = {
+            'use_llm_for_reports': True,        # 使用 LLM 生成报告
+            'use_llm_for_insights': True,       # 使用 LLM 提取洞察
+            'min_data_for_llm': 5,              # LLM 报告最小数据量
+            'fallback_to_rules': True,           # LLM 失败时 fallback
+            'cache_reports': True,               # 缓存报告
+            'report_cache_ttl': 3600,           # 报告缓存 TTL（1小时）
+        }
+
+        # 报告缓存
+        self._report_cache: Dict[str, Dict[str, Any]] = {}
+
+    def _call_llm_sync(self, prompt: str, temperature: float = 0.3) -> Optional[str]:
+        """同步调用 LLM（直接用 sync invoke，避免 async 死锁）"""
+        if not self.llm:
+            return None
+
+        try:
+            # 直接调用 sync invoke，httpx 会用同步模式，不阻塞事件循环
+            response = self.llm.invoke(prompt)
+            return response.content if hasattr(response, 'content') else str(response)
+        except Exception as e:
+            self.logger.error(f"同步 LLM 调用失败: {e}")
+            return None
+
+    async def _call_llm_async(self, prompt: str, temperature: float = 0.3) -> Optional[str]:
+        """异步调用 LLM"""
+        if not self.llm:
+            return None
+
+        try:
+            if hasattr(self.llm, 'ainvoke'):
+                response = await self.llm.ainvoke(prompt)
+                return response.content if hasattr(response, 'content') else str(response)
+            elif hasattr(self.llm, 'invoke'):
+                response = self.llm.invoke(prompt)
+                return response.content if hasattr(response, 'content') else str(response)
+            else:
+                response = await self.llm.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "你是一个专业的系统分析师。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=temperature,
+                    response_format={"type": "json_object"}
+                )
+                return response.choices[0].message.content
+        except Exception as e:
+            self.logger.error(f"LLM 调用异常: {e}")
+            return None
 
     def generate_post_task_report(
         self,
@@ -28,7 +223,7 @@ class ReflectionReporter:
         reflection_result: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
-        生成任务后反思报告
+        生成任务后反思报告（Agent 驱动）
 
         Args:
             session_id: 会话ID
@@ -52,6 +247,21 @@ class ReflectionReporter:
             reflection_type = "failure_analysis"
             title = "失败任务分析"
 
+        # 检查是否使用 LLM
+        should_use_llm = (
+            self._agent_config['use_llm_for_reports']
+            and self.llm is not None
+            and reflection_result is not None
+        )
+
+        if should_use_llm:
+            llm_report = self._generate_report_with_agent(evaluation_result, reflection_result)
+            reflection_content = llm_report.get('analysis', '')
+            actionable_insights = llm_report.get('improvement_suggestions', [])
+        else:
+            reflection_content = self._generate_reflection_content(evaluation_result, reflection_result)
+            actionable_insights = self._extract_actionable_insights(evaluation_result, reflection_result)
+
         # 构建报告内容
         report = {
             "type": reflection_type,
@@ -66,12 +276,9 @@ class ReflectionReporter:
                 "completion_time": evaluation_result.get('completion_time'),
                 "error_type": evaluation_result.get('error_type')
             },
-            "reflection_content": self._generate_reflection_content(
-                evaluation_result, reflection_result
-            ),
-            "actionable_insights": self._extract_actionable_insights(
-                evaluation_result, reflection_result
-            )
+            "reflection_content": reflection_content,
+            "actionable_insights": actionable_insights,
+            "_generation_method": "agent" if should_use_llm else "rules"
         }
 
         # 如果有反思结果，添加分析发现
@@ -81,9 +288,51 @@ class ReflectionReporter:
 
         return report
 
+    def _generate_report_with_agent(
+        self,
+        evaluation_result: Dict[str, Any],
+        reflection_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        使用 Agent（LLM）生成报告
+
+        Args:
+            evaluation_result: 评估结果
+            reflection_result: 反思结果
+
+        Returns:
+            LLM 生成的报告内容
+        """
+        self.logger.info("使用 Agent 生成任务反思报告")
+
+        try:
+            # 构建 Prompt
+            prompt = POST_TASK_REPORT_PROMPT.format(
+                evaluation_result=_safe_dumps(evaluation_result, ensure_ascii=False, indent=2),
+                reflection_result=_safe_dumps(reflection_result, ensure_ascii=False, indent=2) if reflection_result else "{}"
+            )
+
+            # 调用 LLM
+            response = self._call_llm_sync(prompt)
+
+            if response:
+                result = json.loads(response)
+                self.logger.info(f"Agent 生成了报告: {result.get('summary', '')[:50]}...")
+                return result
+
+        except Exception as e:
+            self.logger.error(f"Agent 报告生成失败: {e}")
+
+        # Fallback
+        return {
+            'summary': '',
+            'analysis': self._generate_reflection_content(evaluation_result, reflection_result),
+            'improvement_suggestions': []
+        }
+
     def generate_periodic_report(self, days: int = 7) -> Dict[str, Any]:
         """
-        生成周期性反思报告
+        生成周期性反思报告（Agent 驱动）
 
         Args:
             days: 周期天数
@@ -94,14 +343,31 @@ class ReflectionReporter:
         if not self.reflection_repo:
             return {"error": "reflection_repo not available"}
 
-        # 获取最近的反思记录
+        # 获取数据
         recent_reflections = self.reflection_repo.get_recent_reflections(days=days)
-
-        # 获取可执行的建议
         recommendations = self.reflection_repo.get_actionable_recommendations()
-
-        # 获取坏case
         bad_cases = self.reflection_repo.get_all_bad_cases(days=days)
+
+        # 检查是否使用 LLM
+        should_use_llm = (
+            self._agent_config['use_llm_for_reports']
+            and self.llm is not None
+            and len(recent_reflections) >= self._agent_config['min_data_for_llm']
+        )
+
+        if should_use_llm:
+            llm_report = self._generate_periodic_report_with_agent(
+                recent_reflections, recommendations, bad_cases, days
+            )
+            summary = llm_report.get('executive_summary', '')
+            key_metrics = llm_report.get('key_findings', [])
+            priority_actions = llm_report.get('priority_actions', [])
+        else:
+            summary = self._generate_periodic_summary(
+                len(recent_reflections), len(bad_cases), recommendations
+            )
+            key_metrics = self._calculate_key_metrics(recent_reflections)
+            priority_actions = self._propose_next_actions(recommendations, bad_cases)
 
         # 生成报告
         report = {
@@ -109,21 +375,84 @@ class ReflectionReporter:
             "title": f"{days}天周期反思报告",
             "period_days": days,
             "generated_at": datetime.now().isoformat(),
-            "summary": self._generate_periodic_summary(
-                len(recent_reflections), len(bad_cases), recommendations
-            ),
-            "key_metrics": self._calculate_key_metrics(recent_reflections),
+            "summary": summary,
+            "key_metrics": key_metrics,
             "patterns_discovered": self._aggregate_patterns(recent_reflections),
             "bad_cases_summary": self._summarize_bad_cases(bad_cases),
             "top_recommendations": recommendations[:5] if recommendations else [],
-            "next_actions": self._propose_next_actions(recommendations, bad_cases)
+            "next_actions": priority_actions,
+            "_generation_method": "agent" if should_use_llm else "rules"
         }
 
         return report
 
+    def _generate_periodic_report_with_agent(
+        self,
+        recent_reflections: List[Dict],
+        recommendations: List[Dict],
+        bad_cases: List[Dict],
+        days: int
+    ) -> Dict[str, Any]:
+        """
+        使用 Agent 生成周期性报告
+
+        Args:
+            recent_reflections: 近期反思记录
+            recommendations: 建议列表
+            bad_cases: 坏case列表
+            days: 周期天数
+
+        Returns:
+            LLM 生成的报告
+        """
+        self.logger.info("使用 Agent 生成周期性报告")
+
+        try:
+            # 准备数据摘要
+            data_summary = {
+                'total_reflections': len(recent_reflections),
+                'total_bad_cases': len(bad_cases),
+                'total_recommendations': len(recommendations),
+                'period_days': days
+            }
+
+            key_metrics = self._calculate_key_metrics(recent_reflections)
+            patterns = self._aggregate_patterns(recent_reflections)
+            bad_cases_summary = self._summarize_bad_cases(bad_cases)
+
+            # 构建 Prompt
+            prompt = PERIODIC_REPORT_PROMPT.format(
+                data_summary=_safe_dumps(data_summary, ensure_ascii=False),
+                key_metrics=_safe_dumps(key_metrics, ensure_ascii=False, indent=2),
+                patterns=_safe_dumps(patterns, ensure_ascii=False, indent=2),
+                bad_cases_summary=_safe_dumps(bad_cases_summary, ensure_ascii=False, indent=2),
+                recommendations=_safe_dumps(recommendations[:10], ensure_ascii=False, indent=2),
+                current_date=datetime.now().strftime('%Y年%m月%d日')
+            )
+
+            # 调用 LLM
+            response = self._call_llm_sync(prompt)
+
+            if response:
+                result = json.loads(response)
+                self.logger.info(f"Agent 生成了周期性报告: {result.get('executive_summary', '')[:50]}...")
+                return result
+
+        except Exception as e:
+            self.logger.error(f"Agent 周期性报告生成失败: {e}")
+
+        # Fallback
+        return {
+            'executive_summary': self._generate_periodic_summary(
+                len(recent_reflections), len(bad_cases), recommendations
+            ),
+            'key_findings': [],
+            'priority_actions': []
+        }
+
     def generate_user_insight_report(self, user_id: str = "default_user") -> Dict[str, Any]:
         """
-        生成用户洞察报告（用于个性化服务优化）
+        生成用户洞察报告（Agent 驱动）
 
         Args:
             user_id: 用户ID
@@ -134,16 +463,31 @@ class ReflectionReporter:
         if not self.reflection_repo:
             return {"error": "reflection_repo not available"}
 
-        # 获取用户反馈
+        # 获取数据
         from db.db_router import DatabaseRouter
         db = DatabaseRouter()
         feedbacks = db.feedback.get_user_feedbacks(user_id=user_id, days=30)
         rating_stats = db.feedback.get_rating_stats(user_id=user_id, days=30)
 
-        # 获取用户行为分析
         from services.user_behavior_service import UserBehaviorService
         behavior_service = UserBehaviorService()
         pattern_analysis = behavior_service.analyze_user_patterns(user_id)
+
+        # 检查是否使用 LLM
+        should_use_llm = (
+            self._agent_config['use_llm_for_insights']
+            and self.llm is not None
+        )
+
+        if should_use_llm:
+            llm_insight = self._generate_user_insight_with_agent(
+                user_id, pattern_analysis, rating_stats, feedbacks
+            )
+            personalized_suggestions = llm_insight.get('personalized_tips', [])
+        else:
+            personalized_suggestions = self._generate_personalized_suggestions(
+                pattern_analysis, rating_stats
+            )
 
         # 生成报告
         report = {
@@ -161,12 +505,157 @@ class ReflectionReporter:
                 "preferred_technician": pattern_analysis.get('preferred_technician'),
                 "time_preference": pattern_analysis.get('time_preference', {})
             },
-            "personalized_suggestions": self._generate_personalized_suggestions(
-                pattern_analysis, rating_stats
-            )
+            "personalized_suggestions": personalized_suggestions,
+            "_generation_method": "agent" if should_use_llm else "rules"
         }
 
         return report
+
+    def _generate_user_insight_with_agent(
+        self,
+        user_id: str,
+        pattern_analysis: Dict,
+        rating_stats: Dict,
+        feedbacks: List[Dict]
+    ) -> Dict[str, Any]:
+        """
+        使用 Agent 生成用户洞察
+
+        Args:
+            user_id: 用户ID
+            pattern_analysis: 行为模式分析
+            rating_stats: 评分统计
+            feedbacks: 反馈列表
+
+        Returns:
+            LLM 生成的用户洞察
+        """
+        self.logger.info(f"使用 Agent 为用户 {user_id} 生成洞察")
+
+        try:
+            # 准备数据
+            behavior_data = {
+                'user_id': user_id,
+                'pattern': pattern_analysis.get('pattern', 'unknown'),
+                'frequency_analysis': pattern_analysis.get('frequency_analysis', {}),
+                'preferred_technician': pattern_analysis.get('preferred_technician'),
+                'time_preference': pattern_analysis.get('time_preference', {})
+            }
+
+            feedback_data = {
+                'total_feedbacks': len(feedbacks),
+                'avg_rating': rating_stats.get('avg_rating', 0),
+                'rating_distribution': self._analyze_rating_distribution(feedbacks)
+            }
+
+            # 构建 Prompt
+            prompt = USER_INSIGHT_REPORT_PROMPT.format(
+                behavior_data=_safe_dumps(behavior_data, ensure_ascii=False, indent=2),
+                feedback_data=_safe_dumps(feedback_data, ensure_ascii=False, indent=2),
+                current_date=datetime.now().strftime('%Y年%m月%d日')
+            )
+
+            # 调用 LLM
+            response = self._call_llm_sync(prompt)
+
+            if response:
+                result = json.loads(response)
+                self.logger.info(f"Agent 生成了用户洞察: {result.get('user_profile', {}).get('value_tier', '')}")
+                return result
+
+        except Exception as e:
+            self.logger.error(f"Agent 用户洞察生成失败: {e}")
+
+        # Fallback
+        return {
+            'personalized_tips': self._generate_personalized_suggestions(pattern_analysis, rating_stats)
+        }
+
+    def generate_dashboard_summary(self) -> Dict[str, Any]:
+        """
+        生成仪表盘摘要（Agent 驱动）
+
+        Returns:
+            仪表盘摘要
+        """
+        if not self.reflection_repo:
+            return {"error": "reflection_repo not available"}
+
+        # 获取数据
+        daily_stats = self._get_period_stats(1)
+        weekly_stats = self._get_period_stats(7)
+        monthly_stats = self._get_period_stats(30)
+
+        # 检查是否使用 LLM
+        should_use_llm = (
+            self._agent_config['use_llm_for_reports']
+            and self.llm is not None
+        )
+
+        if should_use_llm:
+            llm_summary = self._generate_dashboard_with_agent(daily_stats, weekly_stats, monthly_stats)
+            alerts = llm_summary.get('alerts', [])
+            quick_insights = llm_summary.get('quick_actions', [])
+        else:
+            alerts = self._generate_alerts(weekly_stats)
+            quick_insights = self._generate_quick_insights(weekly_stats)
+
+        return {
+            "type": "dashboard_summary",
+            "generated_at": datetime.now().isoformat(),
+            "overview": {
+                "today": daily_stats,
+                "this_week": weekly_stats,
+                "this_month": monthly_stats
+            },
+            "alerts": alerts,
+            "quick_insights": quick_insights,
+            "_generation_method": "agent" if should_use_llm else "rules"
+        }
+
+    def _generate_dashboard_with_agent(
+        self,
+        daily_stats: Dict,
+        weekly_stats: Dict,
+        monthly_stats: Dict
+    ) -> Dict[str, Any]:
+        """
+        使用 Agent 生成仪表盘摘要
+
+        Args:
+            daily_stats: 今日统计
+            weekly_stats: 本周统计
+            monthly_stats: 本月统计
+
+        Returns:
+            LLM 生成的摘要
+        """
+        self.logger.info("使用 Agent 生成仪表盘摘要")
+
+        try:
+            # 构建 Prompt
+            prompt = DASHBOARD_SUMMARY_PROMPT.format(
+                today_stats=_safe_dumps(daily_stats, ensure_ascii=False),
+                week_stats=_safe_dumps(weekly_stats, ensure_ascii=False),
+                month_stats=_safe_dumps(monthly_stats, ensure_ascii=False)
+            )
+
+            # 调用 LLM
+            response = self._call_llm_sync(prompt)
+
+            if response:
+                result = json.loads(response)
+                self.logger.info(f"Agent 生成了仪表盘摘要: {result.get('headline', '')[:50]}...")
+                return result
+
+        except Exception as e:
+            self.logger.error(f"Agent 仪表盘摘要生成失败: {e}")
+
+        # Fallback
+        return {
+            'alerts': self._generate_alerts(weekly_stats),
+            'quick_actions': self._generate_quick_insights(weekly_stats)
+        }
 
     def generate_remediation_report(
         self,
@@ -333,47 +822,65 @@ class ReflectionReporter:
 
         return "，".join(parts) if parts else "暂无数据"
 
-    def _calculate_key_metrics(self, reflections: List[Dict]) -> Dict[str, Any]:
-        """计算关键指标"""
+    @staticmethod
+    def _extract_success_info(reflection):
+        findings = reflection.get("findings") or {}
+        if not isinstance(findings, dict):
+            return False, 0.0
+        summary = findings.get("evaluation_summary") or {}
+        if isinstance(summary, dict) and ("success" in summary or "success_rate" in summary):
+            try:
+                raw_success = int(summary.get("success", 0))
+            except (TypeError, ValueError):
+                raw_success = 0
+            return raw_success >= 1, float(summary.get("success_rate", 0) or 0)
+        if "success" in findings or "success_rate" in findings:
+            try:
+                raw_success = int(findings.get("success", 0))
+            except (TypeError, ValueError):
+                raw_success = 0
+            return raw_success >= 1, float(findings.get("success_rate", 0) or 0)
+        key_metrics = findings.get("key_metrics") or []
+        if isinstance(key_metrics, list):
+            for km in key_metrics:
+                if not isinstance(km, dict):
+                    continue
+                text = str(km.get("finding") or "") + " " + str(km.get("evidence") or "")
+                m = re.search(r"成功率[^\d]*(\d+(?:\.\d+)?)\s*%", text)
+                if m:
+                    rate = float(m.group(1)) / 100.0
+                    return rate >= 0.5, rate
+        return False, 0.0
+
+    def _calculate_key_metrics(self, reflections):
         if not reflections:
-            return {
-                "total_reflections": 0,
-                "avg_success_rate": 0,
-                "improvement_trend": "no_data"
-            }
-
+            return {"total_reflections": 0, "avg_success_rate": 0, "improvement_trend": "no_data"}
         total = len(reflections)
-        success_count = sum(
-            1 for r in reflections
-            if r.get('findings', {}).get('success', False)
-        )
-
+        success_count = 0
+        rate_sum = 0.0
+        for r in reflections:
+            ok, rate = self._extract_success_info(r)
+            if ok:
+                success_count += 1
+            rate_sum += rate
         return {
             "total_reflections": total,
-            "success_rate": success_count / total if total > 0 else 0,
-            "avg_success_rate": round(
-                sum(r.get('findings', {}).get('success_rate', 0) for r in reflections) / total
-                if total > 0 else 0, 3
-            ),
+            "success_rate": round(success_count / total, 3) if total > 0 else 0,
+            "avg_success_rate": round(rate_sum / total, 3) if total > 0 else 0,
             "improvement_trend": self._calculate_trend(reflections)
         }
 
-    def _calculate_trend(self, reflections: List[Dict]) -> str:
-        """计算趋势"""
+    def _calculate_trend(self, reflections):
         if len(reflections) < 3:
             return "insufficient_data"
-
-        # 按时间排序
-        sorted_refs = sorted(reflections, key=lambda x: x.get('created_at', ''))
-
-        # 比较前半和后半的成功率
+        sorted_refs = sorted(reflections, key=lambda x: x.get("created_at", ""))
         mid = len(sorted_refs) // 2
         first_half = sorted_refs[:mid]
         second_half = sorted_refs[mid:]
-
-        first_rate = sum(r.get('findings', {}).get('success_rate', 0) for r in first_half) / len(first_half)
-        second_rate = sum(r.get('findings', {}).get('success_rate', 0) for r in second_half) / len(second_half)
-
+        first_rates = [self._extract_success_info(r)[1] for r in first_half]
+        second_rates = [self._extract_success_info(r)[1] for r in second_half]
+        first_rate = sum(first_rates) / len(first_rates) if first_rates else 0
+        second_rate = sum(second_rates) / len(second_rates) if second_rates else 0
         if second_rate > first_rate + 0.1:
             return "improving"
         elif second_rate < first_rate - 0.1:

@@ -10,7 +10,7 @@
 
 import uuid
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -317,6 +317,58 @@ class ReflectionAgent:
             }
         
         return {"error": "评估仓库不可用"}
+
+    def _generate_session_recommendations(self, failed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """根据失败评估生成诊断建议"""
+        if not failed:
+            return []
+
+        recommendations = []
+        error_types = {}
+        for e in failed:
+            err = e.get('error_type', 'unknown')
+            error_types[err] = error_types.get(err, 0) + 1
+
+        for err_type, count in sorted(error_types.items(), key=lambda x: -x[1]):
+            rec = {
+                "priority": "high" if count >= 2 else "medium",
+                "focus_area": err_type,
+                "count": count,
+                "suggestions": []
+            }
+            if err_type == "timeout":
+                rec["suggestions"] = [
+                    "检查服务响应超时配置",
+                    "优化数据库查询性能",
+                    "考虑增加超时重试机制"
+                ]
+            elif err_type == "incomplete_info":
+                rec["suggestions"] = [
+                    "优化信息收集流程，减少必填字段",
+                    "添加引导提示帮助用户完成信息输入",
+                    "考虑提供默认值减少用户输入负担"
+                ]
+            elif err_type == "validation_error":
+                rec["suggestions"] = [
+                    "检查输入验证规则是否过于严格",
+                    "提供更清晰的错误提示",
+                    "优化数据校验逻辑"
+                ]
+            elif err_type == "api_error":
+                rec["suggestions"] = [
+                    "检查外部 API 服务状态",
+                    "添加 API 调用重试机制",
+                    "实现熔断降级策略"
+                ]
+            else:
+                rec["suggestions"] = [
+                    "查看详细错误日志定位根因",
+                    "检查相关模块的最新改动",
+                    "考虑添加监控告警"
+                ]
+            recommendations.append(rec)
+
+        return recommendations
 
 
 class ReflectionMixin:

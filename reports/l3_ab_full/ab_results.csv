@@ -1,0 +1,4 @@
+case_id,scenario,input,success_a,success_b,delta_success,turns_a,turns_b,delta_turns,latency_a,latency_b,error_type_a,error_type_b,error_a,error_b
+ab_happy,标准预约：女/肩颈/60min/明天14:00,我是女生，想约明天下午2点做60分钟肩颈按摩,0,0,0,0,0,0,1.531,1.563,slot_unavailable,slot_unavailable,slot_unavailable,slot_unavailable
+ab_conflict,冲突时段：男/足疗/45min/今晚21:30（边界时间）,我是男的，给我约今晚9点半的足疗，45分钟,2,2,0,0,0,0,3.094,3.109,,,,
+ab_preference,用户偏好：油压/90min（user_behavior 已有偏好）,帮我约油压90分钟,0,0,0,0,0,0,1.344,1.282,no_evaluation_written,no_evaluation_written,AppointmentAgent 未落 task_evaluations 行,AppointmentAgent 未落 task_evaluations 行

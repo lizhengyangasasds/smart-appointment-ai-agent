@@ -14,6 +14,29 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _make_json_safe(obj: Any) -> Any:
+    """递归把对象转成 json.dumps 可处理的类型
+
+    处理 datetime / set / tuple / 自定义对象等不可直接序列化对象。
+    """
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {str(k): _make_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [_make_json_safe(v) for v in obj]
+    if hasattr(obj, "isoformat"):
+        try:
+            return obj.isoformat()
+        except Exception:
+            pass
+    if hasattr(obj, "__dict__"):
+        return _make_json_safe(obj.__dict__)
+    return str(obj)
+
+
 class EvaluationRepository:
     """任务评估数据仓库"""
 
@@ -94,14 +117,17 @@ class EvaluationRepository:
                     return {"total": 0, "success_rate": 0, "avg_turns": 0}
                 
                 total = len(evaluations)
-                success_count = sum(1 for e in evaluations if e.success == 1)
+                # SuccessLevel: 0=FAILED, 1=PARTIAL, 2=SUCCESS
+                # 成功率统计：FAILED 视为失败，其余（PARTIAL + SUCCESS）均计入成功
+                success_count = sum(1 for e in evaluations if e.success >= 1)
+                failure_count = sum(1 for e in evaluations if e.success == 0)
                 avg_turns = sum(e.turns_count for e in evaluations) / total
                 avg_rate = sum(e.success_rate for e in evaluations) / total
-                
+
                 return {
                     "total": total,
                     "success": success_count,
-                    "failure": total - success_count,
+                    "failure": failure_count,
                     "success_rate": success_count / total if total > 0 else 0,
                     "avg_success_rate": avg_rate,
                     "avg_turns": avg_turns,
@@ -116,21 +142,46 @@ class EvaluationRepository:
         """获取失败的任务评估（用于坏case分析）"""
         try:
             with get_db_session() as session:
+                # 只保留真正失败的评估（success==0 即 SuccessLevel.FAILED）
+                # 之前误写成 success==0 OR success==2，把完全成功的也当成坏 case，已修正
                 query = session.query(TaskEvaluation).filter(
-                    or_(TaskEvaluation.success == 0, TaskEvaluation.success == 2)
+                    TaskEvaluation.success == 0
                 )
-                
+
                 if task_type:
                     query = query.filter(TaskEvaluation.task_type == task_type)
-                
+
                 cutoff_date = datetime.utcnow() - timedelta(days=days)
                 query = query.filter(TaskEvaluation.created_at >= cutoff_date)
-                
+
                 evaluations = query.order_by(desc(TaskEvaluation.created_at)).limit(limit).all()
-                
+
                 return [self._to_dict(e) for e in evaluations]
         except Exception as e:
             logger.error(f"获取失败评估失败: {e}")
+            return []
+
+    def get_evaluations_by_task_type(self, task_type: str, start_time: datetime = None, end_time: datetime = None, limit: int = 1000) -> List[Dict[str, Any]]:
+        """按任务类型 + 时间窗获取评估（用于闭环 Before/After 对比）
+
+        与 get_recent_evaluations 的区别：支持显式 start_time/end_time，
+        而不仅以 days 回溯。
+        """
+        try:
+            with get_db_session() as session:
+                query = session.query(TaskEvaluation).filter(
+                    TaskEvaluation.task_type == task_type
+                )
+
+                if start_time is not None:
+                    query = query.filter(TaskEvaluation.created_at >= start_time)
+                if end_time is not None:
+                    query = query.filter(TaskEvaluation.created_at <= end_time)
+
+                query = query.order_by(desc(TaskEvaluation.created_at)).limit(limit)
+                return [self._to_dict(e) for e in query.all()]
+        except Exception as e:
+            logger.error(f"按任务类型获取评估失败: {e}")
             return []
 
     def _to_dict(self, evaluation: TaskEvaluation) -> Dict[str, Any]:
@@ -166,11 +217,11 @@ class ReflectionRepository:
                     session_id=session_id,
                     evaluation_id=evaluation_id,
                     reflection_type=reflection_type,
-                    findings=findings or {},
-                    recommendations=recommendations or [],
-                    patterns_discovered=patterns_discovered or [],
-                    bad_cases=bad_cases or [],
-                    improvement_actions=improvement_actions or []
+                    findings=_make_json_safe(findings) if findings else {},
+                    recommendations=_make_json_safe(recommendations) if recommendations else [],
+                    patterns_discovered=_make_json_safe(patterns_discovered) if patterns_discovered else [],
+                    bad_cases=_make_json_safe(bad_cases) if bad_cases else [],
+                    improvement_actions=_make_json_safe(improvement_actions) if improvement_actions else []
                 )
                 session.add(log)
                 session.commit()
@@ -239,7 +290,10 @@ class ReflectionRepository:
                 recommendations = []
                 for r in reflections:
                     if r.recommendations:
-                        for rec in r.recommendations:
+                        recs = r.recommendations if isinstance(r.recommendations, list) else [r.recommendations]
+                        for rec in recs:
+                            if not isinstance(rec, dict):
+                                continue
                             rec['reflection_id'] = r.id
                             rec['created_at'] = r.created_at.isoformat() if r.created_at else None
                             recommendations.append(rec)

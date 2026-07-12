@@ -173,22 +173,116 @@ class BehaviorRecorder:
     def validate_behavior_data(self, action_type: str, action_data: Dict[str, Any]) -> bool:
         """
         验证行为数据的有效性
-        
+
         Args:
             action_type: 行为类型
             action_data: 行为数据
-            
+
         Returns:
             bool: 数据是否有效
         """
         if not action_type:
             return False
-        
+
         # 根据不同行为类型进行验证
         if action_type == 'appointment':
             required_fields = ['start_time', 'duration']
             return all(field in action_data for field in required_fields)
         elif action_type == 'consultation':
             return 'query' in action_data or 'question' in action_data
-        
+
         return True  # 其他类型默认有效
+
+    def get_consultation_behaviors(
+        self,
+        user_id: str = None,
+        days_back: int = 30,
+        min_score: float = None,
+        max_score: float = None
+    ) -> List[Dict[str, Any]]:
+        """
+        获取咨询行为记录（支持过滤条件）
+
+        Args:
+            user_id: 用户ID过滤
+            days_back: 查询多少天内的记录
+            min_score: 最低分数过滤
+            max_score: 最高分数过滤
+
+        Returns:
+            咨询行为列表
+        """
+        try:
+            return self.behavior_db.get_consultation_behaviors(
+                user_id=user_id,
+                days_back=days_back,
+                min_score=min_score,
+                max_score=max_score
+            )
+        except Exception as e:
+            self.logger.error(f"获取咨询行为失败: {str(e)}")
+            return []
+
+    def get_consultation_statistics(self, days_back: int = 30) -> Dict[str, Any]:
+        """
+        获取咨询统计信息
+
+        Args:
+            days_back: 统计天数
+
+        Returns:
+            咨询统计信息
+        """
+        try:
+            return self.behavior_db.get_consultation_statistics(days_back=days_back)
+        except Exception as e:
+            self.logger.error(f"获取咨询统计失败: {str(e)}")
+            return {}
+
+    def get_high_score_low_quality_consultations(
+        self,
+        score_threshold: float = 0.8,
+        days_back: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        获取"高分但可能低质量"的咨询记录
+
+        Args:
+            score_threshold: 分数阈值
+            days_back: 查询天数
+
+        Returns:
+            高分但可能质量不佳的咨询列表
+        """
+        try:
+            return self.behavior_db.get_high_score_low_quality_consultations(
+                score_threshold=score_threshold,
+                days_back=days_back
+            )
+        except Exception as e:
+            self.logger.error(f"获取高分低质量咨询失败: {str(e)}")
+            return []
+
+    def get_user_consultation_history(
+        self,
+        user_id: str,
+        days_back: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        获取指定用户的咨询历史
+
+        Args:
+            user_id: 用户ID
+            days_back: 查询天数
+
+        Returns:
+            用户的咨询历史
+        """
+        try:
+            return self.behavior_db.get_user_consultation_history(
+                user_id=user_id,
+                days_back=days_back
+            )
+        except Exception as e:
+            self.logger.error(f"获取用户咨询历史失败: {str(e)}")
+            return []
