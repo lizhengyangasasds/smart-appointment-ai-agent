@@ -1,0 +1,85 @@
+{
+  "summary": {
+    "n_cases": 3,
+    "success_rate_a": 0.333,
+    "success_rate_b": 0.333,
+    "delta_success_rate": 0.0,
+    "full_success_rate_a": 0.333,
+    "full_success_rate_b": 0.333,
+    "delta_full_success_rate": 0.0,
+    "avg_turns_a": 0.0,
+    "avg_turns_b": 0.0,
+    "delta_turns_reduction": 0.0,
+    "avg_latency_a": 1.99,
+    "avg_latency_b": 1.985,
+    "composite_score_a": 0.513,
+    "composite_score_b": 0.513,
+    "delta_composite": 0.0
+  },
+  "reflection_stats": {
+    "reflection_logs_a_count": 0,
+    "reflection_logs_b_count": 0,
+    "recent_bad_cases_extraction_rate": 0.0,
+    "recent_recommendations_extraction_rate": 0.043,
+    "recent_patterns_extraction_rate": 0.0,
+    "recent_window": 47
+  },
+  "engine_info": {
+    "engine_available": true,
+    "engine_class": "ReflectionEngine"
+  },
+  "results": [
+    {
+      "case_id": "ab_happy",
+      "scenario": "标准预约：女/肩颈/60min/明天14:00",
+      "input": "我是女生，想约明天下午2点做60分钟肩颈按摩",
+      "success_a": 0,
+      "success_b": 0,
+      "delta_success": 0,
+      "turns_a": 0,
+      "turns_b": 0,
+      "delta_turns": 0,
+      "latency_a": 1.531,
+      "latency_b": 1.563,
+      "error_type_a": "slot_unavailable",
+      "error_type_b": "slot_unavailable",
+      "error_a": "slot_unavailable",
+      "error_b": "slot_unavailable"
+    },
+    {
+      "case_id": "ab_conflict",
+      "scenario": "冲突时段：男/足疗/45min/今晚21:30（边界时间）",
+      "input": "我是男的，给我约今晚9点半的足疗，45分钟",
+      "success_a": 2,
+      "success_b": 2,
+      "delta_success": 0,
+      "turns_a": 0,
+      "turns_b": 0,
+      "delta_turns": 0,
+      "latency_a": 3.094,
+      "latency_b": 3.109,
+      "error_type_a": "",
+      "error_type_b": "",
+      "error_a": "",
+      "error_b": ""
+    },
+    {
+      "case_id": "ab_preference",
+      "scenario": "用户偏好：油压/90min（user_behavior 已有偏好）",
+      "input": "帮我约油压90分钟",
+      "success_a": 0,
+      "success_b": 0,
+      "delta_success": 0,
+      "turns_a": 0,
+      "turns_b": 0,
+      "delta_turns": 0,
+      "latency_a": 1.344,
+      "latency_b": 1.282,
+      "error_type_a": "no_evaluation_written",
+      "error_type_b": "no_evaluation_written",
+      "error_a": "AppointmentAgent 未落 task_evaluations 行",
+      "error_b": "AppointmentAgent 未落 task_evaluations 行"
+    }
+  ],
+  "timestamp": "2026-07-12T20:45:39"
+}

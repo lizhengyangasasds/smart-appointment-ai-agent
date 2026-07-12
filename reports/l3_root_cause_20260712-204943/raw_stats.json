@@ -1,0 +1,121 @@
+{
+  "reflection_logs": {
+    "n_total": 47,
+    "nested_in_findings": {
+      "bad_cases_nonempty": 0,
+      "bad_cases_rate": 0.0,
+      "recommendations_nonempty": 25,
+      "recommendations_rate": 0.532,
+      "patterns_nonempty": 25,
+      "patterns_rate": 0.532
+    },
+    "outer_columns": {
+      "bad_cases_nonempty": 0,
+      "bad_cases_rate": 0.0,
+      "recommendations_nonempty": 2,
+      "recommendations_rate": 0.043,
+      "patterns_nonempty": 0,
+      "patterns_rate": 0.0
+    },
+    "success_level_distribution": {
+      "SUCCESS": 4,
+      "FAILED": 6,
+      "unknown": 20,
+      "PARTIAL": 17
+    },
+    "error_type_distribution": {
+      "no_error": 24,
+      "incomplete_info": 17,
+      "slot_unavailable": 6
+    }
+  },
+  "strategy_versions": {
+    "n_total": 27,
+    "by_strategy_type": {
+      "matching": 23,
+      "prompt": 1,
+      "recommendation": 1,
+      "routing": 1,
+      "timeout": 1
+    },
+    "by_status": {
+      "active": 5,
+      "archived": 22
+    },
+    "recent_3": [
+      {
+        "id": 27,
+        "strategy_type": "matching",
+        "status": "active",
+        "created_at": "2026-07-11T14:09:46.018936"
+      },
+      {
+        "id": 26,
+        "strategy_type": "matching",
+        "status": "archived",
+        "created_at": "2026-07-11T14:09:45.983070"
+      },
+      {
+        "id": 25,
+        "strategy_type": "matching",
+        "status": "archived",
+        "created_at": "2026-07-11T14:09:45.952936"
+      }
+    ]
+  },
+  "ab_eval": {
+    "exists": true,
+    "run": "reports\\l3_ab_smoke",
+    "data": {
+      "summary": {
+        "n_cases": 1,
+        "success_rate_a": 1.0,
+        "success_rate_b": 1.0,
+        "delta_success_rate": 0.0,
+        "full_success_rate_a": 1.0,
+        "full_success_rate_b": 1.0,
+        "delta_full_success_rate": 0.0,
+        "avg_turns_a": 0.0,
+        "avg_turns_b": 0.0,
+        "delta_turns_reduction": 0.0,
+        "avg_latency_a": 3.829,
+        "avg_latency_b": 3.094,
+        "composite_score_a": 0.962,
+        "composite_score_b": 0.969,
+        "delta_composite": -0.007
+      },
+      "reflection_stats": {
+        "reflection_logs_a_count": 0,
+        "reflection_logs_b_count": 0,
+        "recent_bad_cases_extraction_rate": 0.0,
+        "recent_recommendations_extraction_rate": 0.043,
+        "recent_patterns_extraction_rate": 0.0,
+        "recent_window": 47
+      },
+      "engine_info": {
+        "engine_available": true,
+        "engine_class": "ReflectionEngine"
+      },
+      "results": [
+        {
+          "case_id": "ab_happy",
+          "scenario": "标准预约：女/肩颈/60min/明天14:00",
+          "input": "我是女生，想约明天下午2点做60分钟肩颈按摩",
+          "success_a": 2,
+          "success_b": 2,
+          "delta_success": 0,
+          "turns_a": 0,
+          "turns_b": 0,
+          "delta_turns": 0,
+          "latency_a": 3.829,
+          "latency_b": 3.094,
+          "error_type_a": "",
+          "error_type_b": "",
+          "error_a": "",
+          "error_b": ""
+        }
+      ],
+      "timestamp": "2026-07-12T20:44:37"
+    }
+  }
+}
