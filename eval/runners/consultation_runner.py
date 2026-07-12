@@ -48,12 +48,14 @@ async def _run_one(case: EvalCase) -> EvalResult:
     from agents.consultant_agent import ConsultantAgent
 
     agent = ConsultantAgent(session_id=sid)
+    # 主动初始化 KnowledgeRetriever（KnowledgeRetriever 本身无 async ctx 接口）
+    await agent.knowledge_retriever.initialize()
+
     out_tokens: List[str] = []
 
     async def _call():
-        async with agent.knowledge_retriever:  # type: ignore[attr-defined]
-            async for tok in agent.consult_stream(case.input):
-                out_tokens.append(str(tok))
+        async for tok in agent.consult_stream(case.input):
+            out_tokens.append(str(tok))
         return "".join(out_tokens)
 
     _out, latency, err = await run_async(_call())

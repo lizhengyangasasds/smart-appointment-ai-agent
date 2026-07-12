@@ -363,3 +363,111 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 | `reflection_logs` | 反思日志（发现、建议、模式、坏 case） |
 | `user_feedbacks` | 用户反馈（评分、类型、内容、来源） |
 
+---
+
+## 📊 离线评测体系
+
+### 一、跑一次
+
+```bash
+# 跑全部 4 个 Agent 共 30 条 case（默认 ~15 分钟）
+python -m eval.run_eval
+
+# 限制每个 Agent 的 case 数（debug 用，推荐 2~3 条）
+python -m eval.run_eval --limit 3
+
+# 只跑某一个 Agent
+python -m eval.run_eval --agent reflection
+```
+
+跑完会在 `reports/<时间戳>/` 下生成三类产物：
+
+```
+reports/<run_at>/
+├── eval_summary.csv          ← 一行一个 Agent 的总览
+├── latest_run.json           ← 全量快照（summary + 每条 case 详情）
+└── per_agent/
+    ├── classifier.csv        ← 每条 case 的 expected / got / 成功 / 延迟 / 错误
+    ├── appointment.csv
+    ├── consultation.csv
+    └── reflection.csv
+```
+
+### 二、评测报告截图
+
+> 以下截图来自 `reports/20260712-201551/`（4 Agent × 3 case = 12 条，~40 秒跑完）。
+
+**总览（`eval_summary.csv`）：**
+
+![Eval Summary](reports/screenshots/eval_summary.png)
+
+**Appointment 详情：**
+
+![Appointment Detail](reports/screenshots/appointment_detail.png)
+
+**Reflection 详情（含反思触发判定）：**
+
+![Reflection Detail](reports/screenshots/reflection_detail.png)
+
+### 三、指标定义
+
+| 指标 | 公式 / 来源 |
+|---|---|
+| `success_rate` | `case.success == 1` 的占比 |
+| `avg_latency_s` | `time.monotonic()` 测的 wall time（含失败） |
+| `composite_score` | `0.4 × success_rate + 0.3 × (1 − latency_norm) + 0.3 × (1 − turns_norm)` |
+| `trigger_precision` | `should_reflect=True` 中确实写 `reflection_logs` 的占比 |
+| `trigger_recall` | 期望反思的 case 中实际触发的占比 |
+| `bad_case_extraction_rate` | `reflection_logs.bad_cases` 非空的占比 |
+
+> 成功条件不重新实现 —— 直接复用项目里的 `TaskEvaluator.evaluate_appointment_task` 落库结果 + `ReflectionAwareMixin` 的 `should_reflect` 判定，避免"评测库与业务库双口径分裂"。
+
+### 四、本次跑出来的 4 个发现
+
+1. **classifier 100% 命中** —— 任务分类在 3 个测试意图下都正确分流（appointment / query / 其他）。
+2. **reflection 100% 触发正确** —— 1 条 SUCCESS 不反思、2 条 FAILED/超时 触发反思，`trigger_precision = trigger_recall = 1.0`。
+3. **consultation 100% 命中类别** —— RAG 检索返回的 categories 都覆盖期望类别（`top_category ∈ categories`）。
+4. **appointment success_rate = 66.7%** —— 完整信息（女/男 + 时间 + 项目 + 时长）下 2 条都正确识别并落库；剩 1 条（`appt_003` 指定"张伟技师"）因 LLM JSON 输出异常未生成 evaluation 行。
+
+### 五、评测暴露的真实 bug（已修）
+
+第一次跑出来时 appointment success_rate = 0%，**真正有用的不是数字本身，而是 traceback**。DB 现场：
+
+```
+session_id: eval-appointment-appt_001-1783853111159
+success: 0 / rate: 0.0 / err_type: low_completion
+action_data: {gender: None, start_time: None, duration: None, project: None, ...}
+```
+
+`action_data` 全是 None 但用户明明说"明天下午2点，女技师，60分钟"——说明 evaluator 收到的 `appointment_history` 在传入时就是空 dict。
+
+**根因（`agents/appointment_agent.py:436-440`）**：完成预约时先 `_reset_state_after_appointment()` 再 `_record_eval()`。`reset()` 会清空 `appointment_history`，evaluator 看到的就是空 dict，触发 `low_completion`。
+
+**修复**：交换两个分支的顺序。先 `_record_eval(eval_reason)`，再 `reset()`。附回归测试 `tests/test_appointment_agent.py::TestEvaluationOrderingBug`，2 个 case。
+
+**Runner 自身 bug（已修）**：`eval/runners/appointment_runner.py:_fetch_latest_evaluation` 没把 `action_data` 一起 select，导致 `min_gender` 兜底匹配恒为 False。补上行后 appointment success_rate 提升到 66.7%。
+
+### 六、再生成截图
+
+如果更新了 CSV 想重新渲染 README 截图：
+
+```bash
+# 一次性安装 Pillow
+.\.venv\Scripts\pip.exe install pillow
+
+# 修改 eval/render_csv_screenshot.py 顶部的 REPORTS_DIR / 各 render_*() 函数
+# 把硬编码的目录改成新的时间戳，然后重跑：
+python eval/render_csv_screenshot.py
+# 输出：reports/screenshots/{eval_summary,appointment_detail,reflection_detail}.png
+```
+
+### 七、Eval 框架关键约束
+
+- **不重写 Agent** —— runner 只调现有入口（`AppointmentAgent.run_stream` / `ConsultantAgent.consult_stream` / `TaskClassifier.classify_task` / `ReflectionAgent.reflect_on_appointment`）
+- **不复用业务 DB 主会话** —— 每个 case 用独立 `session_id = f"eval-{agent}-{case_id}-{ts}"` 隔离
+- **失败兜底**：case 异常 → `EvalResult(success=0, error=<traceback>)`，**不吞异常**，失败本身就是评测对象
+- **不调 LLM-as-Judge** —— 避免评测成本翻倍
+- **不开新表** —— 复用 `task_evaluations` 作为事实源
+
+详细指标 / 成功条件 / 反射子指标，参见 [`eval/README.md`](eval/README.md)。
+

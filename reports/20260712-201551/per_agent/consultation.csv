@@ -1,0 +1,4 @@
+case_id,scenario,input,expected,got,success,latency_s,turns,error,expected_should_reflect,got_should_reflect,reflection_log_written,bad_cases_non_empty
+cons_001,营业时间,你们店营业时间是几点？,"{""top_category"": ""营业时间""}","{""behavior_id"": 42, ""categories"": [""服务项目"", ""门店地址"", ""营业时间""], ""matched"": true}",1,1.953,1,,False,False,False,False
+cons_002,营业时间（含换行）,请问几点开门？,"{""top_category"": ""营业时间""}","{""behavior_id"": 43, ""categories"": [""预约政策"", ""门店地址"", ""营业时间""], ""matched"": true}",1,2.094,1,,False,False,False,False
+cons_003,服务项目价格,全身推拿多少钱一次？,"{""top_category"": ""服务项目""}","{""behavior_id"": 44, ""categories"": [""服务介绍"", ""服务项目"", ""营业时间""], ""matched"": true}",1,2.219,1,,False,False,False,False

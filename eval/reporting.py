@@ -68,12 +68,37 @@ def write_per_agent_csv(results: List[EvalResult], path: Path) -> None:
 def write_summary_csv(
     summary_rows: List[Dict[str, Any]], path: Path
 ) -> None:
-    """总览 CSV：agent, cases, success_rate, avg_latency_s, avg_turns, composite_score, run_at[, 反思子指标]。"""
+    """总览 CSV：agent, cases, success_rate, avg_latency_s, avg_turns, composite_score, run_at[, 反思子指标]。
+
+    字段顺序：以"非反思基线 + 反思扩展字段"的并集展开，避免 DictWriter 把后续
+    缺字段的行当 dict-with-unknown-keys 抛出。
+    """
     if not summary_rows:
         return
-    fieldnames = list(summary_rows[0].keys())
+    base_fields = [
+        "agent",
+        "cases",
+        "success_rate",
+        "avg_latency_s",
+        "avg_turns",
+        "composite_score",
+        "run_at",
+    ]
+    extra_fields = [
+        "trigger_precision",
+        "trigger_recall",
+        "bad_case_extraction_rate",
+    ]
+    # 收集所有出现过的字段，并按 base → extra 顺序排好
+    seen_extras: List[str] = []
+    for row in summary_rows:
+        for f in extra_fields:
+            if f in row and f not in seen_extras:
+                seen_extras.append(f)
+    fieldnames = base_fields + seen_extras
+
     with path.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         for row in summary_rows:
             w.writerow(row)
