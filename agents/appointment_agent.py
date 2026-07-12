@@ -358,7 +358,7 @@ class AppointmentAgent(ReflectionAwareMixin):
 
         # 评估通道：开始计时 + 累计轮数
         self._task_start_ts = time.monotonic()
-        self._task_turns = self.chat_history.get_num_messages() // 2  # 一个 human+ai 算一轮
+        self._task_turns = len(self.chat_history.messages) // 2  # 一个 human+ai 算一轮
         eval_signal: Dict[str, Any] = {"emitted": False}
 
         def _record_eval(reason: str = "ok") -> None:
@@ -432,12 +432,12 @@ class AppointmentAgent(ReflectionAwareMixin):
                             continue
                         yield token
 
-                    # 只有在真正完成预约时才重置状态
-                    if not recommendation_pending and not self.appointment_history.get('awaiting_confirmation'):
-                        self._reset_state_after_appointment()
-                    # 推荐等待确认时不记评估（任务尚未结束）
+                    # 关键：先评估，再重置。
+                    # 顺序不能换：reset() 会清空 self.appointment_history，
+                    # 后面 _evaluate_task_outcome() 读到的就是全 None dict，触发 low_completion。
                     if not recommendation_pending and not self.appointment_history.get('awaiting_confirmation'):
                         _record_eval(eval_reason)
+                        self._reset_state_after_appointment()
                     return
 
                 # 5. 处理信息不完整的情况：未结束，记为 in_progress（不算失败，
@@ -508,39 +508,20 @@ class AppointmentAgent(ReflectionAwareMixin):
         elif reason == 'timeout':
             err_obj = AppointmentTimeoutError()
 
-        # evaluator 的 evaluate_appointment_task 是 async def 但函数体内没有 await，
-        # 通过 inspect 不阻塞地直接调用即可
-        try:
-            import asyncio as _asyncio
-            coro = self._evaluator.evaluate_appointment_task(
-                session_id=self.session_id,
-                appointment_history=self.appointment_history,
-                turns_count=self._task_turns,
-                completion_time=completion_time,
-                error=err_obj,
-            )
-            try:
-                loop = _asyncio.get_event_loop()
-                if loop.is_running():
-                    # 已有 loop 跑着：在线程里同步跑完
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                        result = ex.submit(
-                            _asyncio.run,
-                            coro
-                        ).result(timeout=10)
-                else:
-                    result = loop.run_until_complete(coro)
-            except RuntimeError:
-                result = _asyncio.run(coro)
-
-            self.logger.debug(
-                f"[Evaluator] 落库 ok reason={reason} "
-                f"success_level={result.get('success_level')} "
-                f"success_rate={result.get('success_rate')}"
-            )
-        except Exception as e:
-            self.logger.warning(f"[Evaluator] 调用失败: {e}")
+        # evaluator.evaluate_appointment_task 当前是同步方法（cpython-async-detector 自适应）：
+        # 直接同步调用即可，最简单可靠。异常被外层 try/except 捕获，不会阻塞预约主流程。
+        result = self._evaluator.evaluate_appointment_task(
+            session_id=self.session_id,
+            appointment_history=self.appointment_history,
+            turns_count=self._task_turns,
+            completion_time=completion_time,
+            error=err_obj,
+        )
+        self.logger.debug(
+            f"[Evaluator] 落库 ok reason={reason} "
+            f"success_level={result.get('success_level')} "
+            f"success_rate={result.get('success_rate')}"
+        )
 
     def validate_technician_recommendation(
         self,

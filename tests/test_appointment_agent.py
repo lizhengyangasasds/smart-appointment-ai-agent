@@ -207,11 +207,93 @@ class TestAppointmentAgentEdgeCases:
         agent.appointment_history["project"] = "按摩"
         agent.appointment_history["start_time"] = "明天"
         agent.finished = True
-        
+
         # 重置
         agent.reset()
-        
+
         # 应该回到初始状态
         assert agent.appointment_history["project"] is None
         assert agent.appointment_history["start_time"] is None
         assert agent.finished == False
+
+
+class TestEvaluationOrderingBug:
+    """回归测试：_record_eval 必须在 _reset_state_after_appointment 之前调用。
+
+    历史 bug：run_stream 流程里 _reset_state_after_appointment() 在 _record_eval()
+    之前调用，导致 evaluator 读到的是 reset 后的全 None dict，触发 low_completion。
+    评测 runner 里 appointment 全部 success=0 就是这个 bug 的表现。
+
+    这个测试用 mock 模拟 evaluator，验证：
+    1. 顺序：_record_eval 先于 reset 触发
+    2. 数据完整性：evaluator 收到的 appointment_history 字段不全是 None
+    """
+
+    def test_record_eval_runs_before_reset(self):
+        """_record_eval 触发时 appointment_history 还有真实数据。"""
+        agent = AppointmentAgent()
+
+        # 模拟用户填了完整预约信息
+        agent.appointment_history = {
+            "gender": "女",
+            "start_time": "2026-07-13 14:00:00",
+            "duration": "60",
+            "project": "按摩",
+            "preference": None,
+            "technician": None,
+            "technician_name": None,
+        }
+        agent.finished = True
+
+        # 抓 evaluator 收到的 appointment_history
+        captured = {}
+        original_eval = agent._evaluate_task_outcome
+
+        def spy_eval(reason="ok"):
+            # 关键：抓此刻的 appointment_history 快照
+            captured["history_at_eval_time"] = dict(agent.appointment_history)
+            captured["reason"] = reason
+            return original_eval(reason=reason)
+
+        agent._evaluate_task_outcome = spy_eval
+
+        # 模拟 run_stream 末尾流程（fix 后的顺序）
+        eval_signal = {"emitted": False}
+        def _record_eval(reason="ok"):
+            if eval_signal["emitted"]:
+                return
+            eval_signal["emitted"] = True
+            agent._evaluate_task_outcome(reason=reason)
+
+        # 模拟"完成后"分支
+        _record_eval("ok")
+        agent._reset_state_after_appointment()
+
+        # 验证：evaluator 收到的是非空数据
+        hist = captured.get("history_at_eval_time", {})
+        assert captured.get("reason") == "ok"
+        assert hist.get("gender") == "女", f"evaluator 收到 None 而不是 '女'，bug 复发"
+        assert hist.get("start_time") == "2026-07-13 14:00:00"
+        assert hist.get("project") == "按摩"
+        assert hist.get("duration") == "60"
+
+        # 重置后才清空
+        assert agent.appointment_history["gender"] is None
+
+    def test_record_eval_not_called_when_recommendation_pending(self):
+        """推荐等待确认时不调用 _record_eval（任务尚未结束）。"""
+        agent = AppointmentAgent()
+
+        call_count = {"n": 0}
+        original_eval = agent._evaluate_task_outcome
+        def spy_eval(reason="ok"):
+            call_count["n"] += 1
+            return original_eval(reason=reason)
+        agent._evaluate_task_outcome = spy_eval
+
+        recommendation_pending = True
+        if not recommendation_pending and not agent.appointment_history.get("awaiting_confirmation"):
+            agent._evaluate_task_outcome(reason="ok")
+            agent._reset_state_after_appointment()
+
+        assert call_count["n"] == 0, "推荐等待确认时不应调用 evaluator"

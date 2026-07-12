@@ -27,7 +27,10 @@ logging.getLogger("agents.appointment").setLevel(logging.WARNING)
 
 
 def _fetch_latest_evaluation(session_id: str) -> Optional[Dict[str, Any]]:
-    """拿某个 session 最近一次 task_evaluations 行。"""
+    """拿某个 session 最近一次 task_evaluations 行。
+
+    必须把 action_data 也带回去 —— runner 用它做 min_gender / technician_name 兜底匹配。
+    """
     with get_db_session() as session:
         row = (
             session.query(TaskEvaluation)
@@ -46,6 +49,7 @@ def _fetch_latest_evaluation(session_id: str) -> Optional[Dict[str, Any]]:
             "turns_count": row.turns_count,
             "error_type": row.error_type,
             "error_message": row.error_message,
+            "action_data": row.action_data,
         }
 
 
