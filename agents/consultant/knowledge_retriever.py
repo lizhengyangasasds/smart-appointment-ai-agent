@@ -20,7 +20,8 @@ class KnowledgeRetriever:
         if not self.kb_initialized:
             await self.knowledge_service.initialize()
             self.kb_initialized = True
-            print("✅ 咨询机器人知识库服务已初始化")
+            import logging as _logging
+            _logging.getLogger(__name__).info("Consultation knowledge base initialized")
     
     async def search_knowledge(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """搜索相关知识"""
@@ -38,13 +39,14 @@ class KnowledgeRetriever:
     
     def _log_search_results(self, query: str, relevant_docs: List[Dict[str, Any]]):
         """记录搜索结果日志"""
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
         if relevant_docs:
-            print(f"🔍 知识库检索结果 (查询: '{query}'):")
+            _log.info(f"[kb-search] query={query!r} hits={len(relevant_docs)}")
             for i, doc in enumerate(relevant_docs, 1):
                 score = doc.get('score', 0)
                 category = doc.get('category', '未知')
-                content = doc.get('content', '')[:80]
-                print(f"  {i}. [相关度:{score:.3f}] [分类:{category}] {content}...")
-            print(f"📊 知识库统计: 共检索到 {len(relevant_docs)} 条相关知识")
+                content = (doc.get('content') or '')[:80]
+                _log.info(f"  hit#{i} score={score:.3f} category={category} content={content!r}")
         else:
-            print(f"⚠️ 知识库检索: 未找到与 '{query}' 相关的知识")
+            _log.info(f"[kb-search] query={query!r} hits=0")
