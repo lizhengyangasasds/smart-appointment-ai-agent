@@ -112,3 +112,31 @@ class UserFeedback(Base):
     source = Column(String, default='explicit')  # 'explicit'=显式, 'implicit'=隐式
     action_data = Column(JSON, nullable=True)  # 相关行为数据
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class StrategyVersion(Base):
+    """策略版本表 - 持久化 Agent 策略版本历史
+
+    用途：
+    1. 让 StrategyUpdater 的策略版本跨进程持久化（重启后能恢复）
+    2. 让 ClosedLoopEvaluator 能按 version_id 关联评估改进效果
+    3. 提供策略版本历史的可审计接口
+
+    与内存版 _strategies 的关系：
+    - 内存版是热数据（每轮请求直接读）
+    - DB 版是冷数据（每次 update_strategy 后增量写入 + 启动时回放）
+    """
+    __tablename__ = 'strategy_versions'
+    id = Column(Integer, primary_key=True)
+    version_id = Column(String, nullable=False, unique=True, index=True)  # 策略版本标识
+    strategy_type = Column(String, nullable=False, index=True)  # 'matching' / 'recommendation' / 'routing' / 'prompt' / 'timeout'
+    name = Column(String, nullable=False)
+    config = Column(JSON, nullable=False)  # 策略参数
+    priority = Column(Integer, default=0)
+    trigger_reason = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default='pending')  # 'active' / 'pending' / 'archived' / 'rolled_back'
+    created_by = Column(String, nullable=False, default='system')  # 'system' / 'agent' / 'rules' / 'cached'
+    meta = Column(JSON, nullable=True)  # 额外元信息（confidence、trigger_condition、root_cause 等）
+    is_active = Column(Integer, default=0, index=True)  # 是否当前活跃（同一 type 下只能有一个为 1）
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

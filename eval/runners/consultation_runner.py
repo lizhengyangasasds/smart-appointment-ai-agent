@@ -73,6 +73,7 @@ async def _run_one(case: EvalCase) -> EvalResult:
             expected=case.expected,
             got={"behavior": behavior or {}, "exception": True},
             error=err,
+            raw_response="".join(out_tokens),
         )
 
     if not behavior:
@@ -88,6 +89,7 @@ async def _run_one(case: EvalCase) -> EvalResult:
             expected=case.expected,
             got={"behavior": None, "fallback": True, "response_non_empty": non_empty},
             error="未找到 user_behavior 行，按 fallback 判定",
+            raw_response="".join(out_tokens),
         )
 
     action_data = behavior.get("action_data") or {}
@@ -111,6 +113,7 @@ async def _run_one(case: EvalCase) -> EvalResult:
             "categories": categories,
             "matched": matched,
         },
+        raw_response="".join(out_tokens),
     )
 
 

@@ -100,8 +100,13 @@ class MessageBuilder:
         return "\n机器人：好的，我理解您的选择。您可以选择其他时间段，或者我可以为您重新推荐其他技师。请问您还有其他需要吗？\n"
     
     def create_appointment_failure_message(self, technician_name: str) -> str:
-        """创建预约失败消息"""
-        if technician_name and technician_name != "未知":
+        """创建预约失败消息
+
+        关键：先校验 technician_name 是否真的是技师姓名。
+        如果是描述性偏好（如"按摩服务"），直接走通用"没找到合适技师"分支，
+        避免向用户抛出"没有找到名为'按摩服务'的技师"这种语义矛盾的回复。
+        """
+        if technician_name and technician_name != "未知" and self._looks_like_real_name(technician_name):
             # 通过Services层访问数据库
             from services.appointment_service import AppointmentService
             appointment_service = AppointmentService()
@@ -112,6 +117,31 @@ class MessageBuilder:
                 return f"\n机器人：抱歉，没有找到名为'{technician_name}'的技师。请确认技师姓名，或者我可以为您推荐其他技师。\n"
         else:
             return "\n机器人：抱歉，该时间段没有合适的技师空闲，请选择其他时间或调整偏好。\n"
+
+    @staticmethod
+    def _looks_like_real_name(name: str) -> bool:
+        """判断 technician_name 是否像真实技师姓名。
+
+        与 InputParser._looks_like_real_name 同样的规则（2~4 个汉字、
+        不能含服务项目关键词等），保持全链路口径一致。
+        之前只看 "technician_name != '未知'" 是不严的——"按摩服务"也能通过这一关。
+        """
+        if not name or not isinstance(name, str):
+            return False
+        cleaned = name.strip()
+        if not (2 <= len(cleaned) <= 4):
+            return False
+        if not all('\u4e00' <= ch <= '\u9fff' for ch in cleaned):
+            return False
+        invalid_keywords = [
+            "按摩", "推拿", "足疗", "spa", "理疗", "养生",
+            "经络", "刮痧", "拔罐", "服务", "技师", "老师",
+            "手劲", "力气", "手法", "经验", "丰富", "高级", "中级", "初级",
+        ]
+        for kw in invalid_keywords:
+            if kw in cleaned:
+                return False
+        return True
     
     def create_missing_info_questions(self, missing_info: List[str]) -> str:
         """根据缺失信息创建询问"""

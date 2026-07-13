@@ -59,9 +59,12 @@ class ReflectionEngine:
 
         # ========== 闭环组件初始化 ==========
         # 策略更新器：基于反思洞察动态调整策略
+        # strategy_repo 让 activate/rollback 真正落库（之前只改内存，重启即丢）
+        from db.repositories.reflection_repository import StrategyRepository
         self.strategy_updater = StrategyUpdater(
             reflection_repo=reflection_repo,
-            llm=llm
+            llm=llm,
+            strategy_repo=StrategyRepository(),
         )
 
         # 闭环效果验证器：验证策略改进效果
@@ -212,8 +215,24 @@ class ReflectionEngine:
         if not recommendations:
             recommendations = pattern_analysis.get('insights', [])
 
-        patterns = failed_analysis.get('patterns', [])
-        bad_cases = bad_case_analysis.get('typical_cases', [])
+        # 修字段名错配：
+        # - patterns 来自 pattern_analysis 的结构化统计（time_patterns + task_type_distribution），
+        #   不是 failed_analysis["patterns"]（无失败任务时为 []）。
+        #   之前从 failed_analysis["patterns"] 取，导致 0% 提取率。
+        # - bad_cases 来自 bad_case_analysis["cases"]（DB 数据路径，字符串列表）或
+        #   ["typical_cases"]（LLM 兜底路径，dict 列表），二者互斥。
+        #   统一成字符串后写入 DB，避免 dict 直接进 JSON 报错。
+        _pa = pattern_analysis or {}
+        patterns = (
+            _pa.get('time_patterns', [])
+            + [{"type": k, "description": f"分布: {v}"} for k, v in _pa.get('task_type_distribution', {}).items()]
+        )
+        _ba = bad_case_analysis or {}
+        raw_bad_cases = _ba.get('cases', []) or _ba.get('typical_cases', [])
+        bad_cases = [
+            bc.get('description', str(bc)) if isinstance(bc, dict) else str(bc)
+            for bc in raw_bad_cases
+        ]
 
         # 保存反思日志
         reflection_id = None
@@ -243,21 +262,25 @@ class ReflectionEngine:
 
     def trigger_periodic_reflection(self, days: int = 7) -> Dict[str, Any]:
         """
-        触发周期性反思
+        触发周期性反思。
+
+        注意：仅生成报告并存入 findings_payload。
+        若需要写 patterns_discovered / bad_cases / recommendations 字段
+        （供 get_insights() 使用），请调用 analyze_and_record()。
 
         Args:
             days: 周期天数
 
         Returns:
-            周期性反思结果
+            周期性反思结果（报告）
         """
         self.logger.info(f"触发周期性反思: days={days}")
 
         # 生成周期性报告
         report = self.reporter.generate_periodic_report(days=days)
 
-        # 保存反思记录：把"事实"结构化进 findings，避免把整份 LLM 生成的报告
-        # 反向当作下次统计的输入（会进入自喂养死循环）。
+        # 保存反思记录（只写 findings，不含 patterns_discovered / bad_cases /
+        # recommendations —— 那些由 analyze_and_record() 写入）
         if self.reflection_repo:
             findings_payload = {
                 "report_type": "periodic",
@@ -267,7 +290,6 @@ class ReflectionEngine:
                 "success_rate": (report.get("key_metrics") or {}).get("success_rate") if isinstance(report.get("key_metrics"), dict) else None,
                 "bad_cases_summary": report.get("bad_cases_summary"),
                 "next_actions": report.get("next_actions"),
-                # 兼容旧字段：保留原始报告，便于历史查询 / 排障
                 "_legacy_report": report,
             }
             self.reflection_repo.save_reflection(
@@ -277,6 +299,123 @@ class ReflectionEngine:
             )
 
         return report
+
+    async def analyze_and_record(self, days: int = 7) -> Dict[str, Any]:
+        """
+        分析近期评测数据并将结构化洞察写入 reflection_logs。
+
+        这是 engine 写入 patterns_discovered / bad_cases / recommendations
+        的唯一入口，供 get_insights() 读取并注入到 Agent prompt。
+
+        内部调用三个 analyzer：
+        - analyze_failed_tasks：分析失败任务模式 → recommendations
+        - discover_user_patterns：分析用户行为 → patterns_discovered
+        - analyze_bad_cases：分析典型坏case → bad_cases
+
+        Args:
+            days: 分析天数（默认 7）
+
+        Returns:
+            包含 patterns / bad_cases / recommendations 的分析结果
+        """
+        self.logger.info(f"analyze_and_record: days={days}")
+
+        if self.evaluation_repo is None:
+            self.logger.warning("evaluation_repo 未初始化，跳过分析")
+            return {"patterns": [], "bad_cases": [], "recommendations": []}
+
+        task_type = "appointment"
+
+        # 1. 分析失败任务 → recommendations
+        try:
+            failed_analysis = await asyncio.wait_for(
+                self.analyzer.analyze_failed_tasks(task_type=task_type, days=days),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning("analyze_failed_tasks 超时")
+            failed_analysis = {"patterns": [], "root_causes": [], "recommendations": [], "summary": "超时"}
+
+        # 2. 发现用户行为模式 → patterns_discovered
+        try:
+            pattern_analysis = await asyncio.wait_for(
+                self.analyzer.discover_user_patterns(user_id="default_user", days=days),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning("discover_user_patterns 超时")
+            pattern_analysis = {"patterns": [], "insights": [], "summary": "超时"}
+
+        # 3. 分析典型坏case → bad_cases
+        try:
+            bad_case_analysis = await asyncio.wait_for(
+                self.analyzer.analyze_bad_cases(days=days),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning("analyze_bad_cases 超时")
+            bad_case_analysis = {"total_cases": 0, "cases": [], "typical_cases": [], "summary": "超时"}
+
+        # 字段提取（与 _perform_reflection 保持一致的字段映射）
+        recommendations = failed_analysis.get('recommendations', [])
+        if not recommendations:
+            recommendations = pattern_analysis.get('insights', [])
+
+        # patterns 来自 pattern_analysis 的结构化统计
+        _pa = pattern_analysis or {}
+        patterns = (
+            _pa.get('time_patterns', [])
+            + [{"type": k, "description": f"分布: {v}"} for k, v in _pa.get('task_type_distribution', {}).items()]
+        )
+
+        _ba = bad_case_analysis or {}
+        raw_bad_cases = _ba.get('cases', []) or _ba.get('typical_cases', [])
+        # cases（DB 路径，字符串列表）; typical_cases（LLM 路径，dict 列表）
+        bad_cases = [
+            bc.get('description', str(bc)) if isinstance(bc, dict) else str(bc)
+            for bc in raw_bad_cases
+        ]
+
+        # 写入 reflection_logs（供 get_insights 读取）
+        findings_payload = {
+            "report_type": "analyze_and_record",
+            "period_days": days,
+            "failure_analysis": failed_analysis,
+            "pattern_analysis": pattern_analysis,
+            "bad_case_analysis": bad_case_analysis,
+            "summary": (
+                f"分析 {days} 天内评测数据："
+                f"{failed_analysis.get('total_failed', 0)} 个失败任务，"
+                f"{_pa.get('total_sessions', 0)} 个会话，"
+                f"{len(bad_cases)} 个典型坏case"
+            ),
+        }
+        reflection_id = None
+        if self.reflection_repo:
+            reflection_id = self.reflection_repo.save_reflection(
+                session_id=f"eval_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                reflection_type=ReflectionTrigger.PERIODIC.value,
+                findings=findings_payload,
+                recommendations=recommendations,
+                patterns_discovered=patterns,
+                bad_cases=[bc.get('description', str(bc)) for bc in bad_cases],
+            )
+
+        self.logger.info(
+            f"analyze_and_record 完成: patterns={len(patterns)} "
+            f"bad_cases={len(bad_cases)} recommendations={len(recommendations)} "
+            f"reflection_id={reflection_id}"
+        )
+
+        return {
+            "reflection_id": reflection_id,
+            "patterns": patterns,
+            "bad_cases": bad_cases,
+            "recommendations": recommendations,
+            "failed_analysis": failed_analysis,
+            "pattern_analysis": pattern_analysis,
+            "bad_case_analysis": bad_case_analysis,
+        }
 
     def record_user_feedback(
         self,

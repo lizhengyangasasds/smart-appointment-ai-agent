@@ -45,6 +45,9 @@ class EvalResult:
       turns                                —— 实测轮数
       expected / got                       —— 期望 vs 实际（dict，列化到 CSV 时转 JSON）
       error                                —— 异常 traceback（无异常为空字符串）
+      prompt_tokens                        —— prompt token 数（估算或 LLM 返回）
+      completion_tokens                    —— 完成 token 数
+      raw_response                         —— LLM 原始响应（用于 token 估算）
 
     reflection runner 额外用：
       expected_should_reflect / got_should_reflect
@@ -60,6 +63,11 @@ class EvalResult:
     expected: Dict[str, Any] = field(default_factory=dict)
     got: Dict[str, Any] = field(default_factory=dict)
     error: str = ""
+
+    # token 消耗
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    raw_response: str = ""
 
     # reflection-only
     expected_should_reflect: bool = False
@@ -79,6 +87,9 @@ class EvalResult:
             "latency_s": round(self.latency_s, 3),
             "turns": self.turns,
             "error": self.error[:500] if self.error else "",
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "raw_response": (self.raw_response or "")[:500],
             "expected_should_reflect": self.expected_should_reflect,
             "got_should_reflect": self.got_should_reflect,
             "reflection_log_written": self.reflection_log_written,

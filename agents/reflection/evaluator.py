@@ -54,7 +54,7 @@ class TaskEvaluator:
 
     # 反思触发阈值配置
     DEFAULT_THRESHOLDS = {
-        'success_rate': 0.7,        # 成功率低于70%触发反思
+        'success_rate': 0.8,        # 成功率低于80%触发反思
         'turns_high': 10,           # 对话轮数超过10轮触发反思
         'completion_time': 120,     # 完成时间超过120秒触发反思
     }
@@ -314,8 +314,16 @@ class TaskEvaluator:
 
         return False
 
-    def _classify_error(self, error: Exception) -> str:
-        """分类错误类型"""
+    def _classify_error(self, error: Exception) -> Optional[str]:
+        """分类错误类型
+
+        - None 入参显式返回 None（语义边界，未知不要猜）
+        - AppointmentSaveFailedError 等业务异常请用 _classify_business_error 优先路由
+        - 这里负责通用字符串匹配
+        """
+        if error is None:
+            return None
+
         error_msg = str(error).lower()
 
         if 'timeout' in error_msg or 'timed out' in error_msg:
@@ -326,7 +334,12 @@ class TaskEvaluator:
             return 'parse_error'
         elif 'database' in error_msg or 'db' in error_msg:
             return 'database_error'
-        elif 'llm' in error_msg or 'model' in error_msg or 'api' in error_msg:
+        elif 'model' in error_msg or 'llm' in error_msg or 'api' in error_msg or 'rate limit' in error_msg:
+            # 'model not found'、'llm api error'、'openai api rate limit' 等都视为 llm_error
+            # 唯一的例外是 'classification model unavailable'（分类器错误），
+            # 因为它的 'classification' 前缀已经表征了"非 LLM"，让它落到 unknown_error
+            if 'classification' in error_msg:
+                return 'unknown_error'
             return 'llm_error'
         elif 'permission' in error_msg or 'auth' in error_msg:
             return 'auth_error'

@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from sqlalchemy import desc, and_, or_
 from db.local_db import get_db_session
-from db.models import TaskEvaluation, ReflectionLog, UserFeedback
+from db.models import TaskEvaluation, ReflectionLog, UserFeedback, StrategyVersion
 import logging
 
 logger = logging.getLogger(__name__)
@@ -407,4 +407,147 @@ class FeedbackRepository:
             "source": feedback.source,
             "action_data": feedback.action_data,
             "created_at": feedback.created_at.isoformat() if feedback.created_at else None
+        }
+
+
+class StrategyRepository:
+    """策略版本数据仓库
+
+    负责 strategy_versions 表的持久化与状态同步。
+
+    设计要点：
+    1. 内存版 StrategyUpdater 是热数据；本仓库只做增量写入和回读
+    2. 每次 activate_strategy 时把对应版本 is_active=1，同 type 的其他版本 is_active=0
+       —— 保证"同 type 下唯一活跃"的约束由 DB 层兜底
+    3. 提供 load_all_active() 让 StrategyUpdater 在启动时恢复状态
+    """
+
+    def save_version(
+        self,
+        version_id: str,
+        strategy_type: str,
+        name: str,
+        config: Dict[str, Any],
+        priority: int = 0,
+        trigger_reason: str = "",
+        status: str = "pending",
+        created_by: str = "system",
+        meta: Dict[str, Any] = None,
+    ) -> Optional[int]:
+        """插入一条策略版本（idempotent：同 version_id 已存在则跳过）"""
+        try:
+            with get_db_session() as session:
+                existing = session.query(StrategyVersion).filter(
+                    StrategyVersion.version_id == version_id
+                ).first()
+                if existing:
+                    return existing.id
+                row = StrategyVersion(
+                    version_id=version_id,
+                    strategy_type=strategy_type,
+                    name=name,
+                    config=_make_json_safe(config),
+                    priority=priority,
+                    trigger_reason=trigger_reason,
+                    status=status,
+                    created_by=created_by,
+                    meta=_make_json_safe(meta) if meta else None,
+                    is_active=1 if status == "active" else 0,
+                )
+                session.add(row)
+                session.commit()
+                return row.id
+        except Exception as e:
+            logger.error(f"保存策略版本失败: {e}")
+            return None
+
+    def activate(self, version_id: str, strategy_type: str) -> bool:
+        """把 version_id 标记为活跃（同 type 下其他版本归 archived）"""
+        try:
+            with get_db_session() as session:
+                target = session.query(StrategyVersion).filter(
+                    StrategyVersion.version_id == version_id
+                ).first()
+                if not target:
+                    logger.warning(f"激活策略失败：未找到 version_id={version_id}")
+                    return False
+                # 同 type 下的其他版本全部归档
+                session.query(StrategyVersion).filter(
+                    StrategyVersion.strategy_type == strategy_type,
+                    StrategyVersion.version_id != version_id,
+                ).update({StrategyVersion.is_active: 0, StrategyVersion.status: "archived"})
+                target.is_active = 1
+                target.status = "active"
+                session.commit()
+                return True
+        except Exception as e:
+            logger.error(f"激活策略失败: {e}")
+            return False
+
+    def rollback(self, strategy_type: str) -> Optional[str]:
+        """把 strategy_type 回滚到默认版本（version_id 含 'default_' 前缀）"""
+        try:
+            with get_db_session() as session:
+                default = session.query(StrategyVersion).filter(
+                    StrategyVersion.strategy_type == strategy_type,
+                    StrategyVersion.version_id.like("default_%"),
+                ).first()
+                if not default:
+                    logger.warning(f"回滚失败：未找到默认策略 {strategy_type}")
+                    return None
+                # 把同 type 其他版本归档
+                session.query(StrategyVersion).filter(
+                    StrategyVersion.strategy_type == strategy_type,
+                    StrategyVersion.version_id != default.version_id,
+                ).update({StrategyVersion.is_active: 0, StrategyVersion.status: "rolled_back"})
+                default.is_active = 1
+                default.status = "active"
+                session.commit()
+                return default.version_id
+        except Exception as e:
+            logger.error(f"回滚策略失败: {e}")
+            return None
+
+    def load_all_active(self) -> Dict[str, Dict[str, Any]]:
+        """启动时回读所有活跃策略，{ strategy_type: {...} }"""
+        try:
+            with get_db_session() as session:
+                rows = session.query(StrategyVersion).filter(
+                    StrategyVersion.is_active == 1
+                ).all()
+                return {
+                    r.strategy_type: self._to_dict(r)
+                    for r in rows
+                }
+        except Exception as e:
+            logger.error(f"加载活跃策略失败: {e}")
+            return {}
+
+    def get_versions_by_type(self, strategy_type: str) -> List[Dict[str, Any]]:
+        """获取某类型下的所有版本（按时间倒序）"""
+        try:
+            with get_db_session() as session:
+                rows = session.query(StrategyVersion).filter(
+                    StrategyVersion.strategy_type == strategy_type
+                ).order_by(desc(StrategyVersion.created_at)).all()
+                return [self._to_dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"获取策略版本列表失败: {e}")
+            return []
+
+    def _to_dict(self, row: StrategyVersion) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "version_id": row.version_id,
+            "strategy_type": row.strategy_type,
+            "name": row.name,
+            "config": row.config,
+            "priority": row.priority,
+            "trigger_reason": row.trigger_reason,
+            "status": row.status,
+            "created_by": row.created_by,
+            "meta": row.meta,
+            "is_active": row.is_active,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }

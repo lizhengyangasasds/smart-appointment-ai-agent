@@ -18,6 +18,7 @@ from agents.reflection.strategy_updater import (
     StrategyStatus,
     StrategyVersion
 )
+from db.repositories.reflection_repository import StrategyRepository
 
 
 class TestStrategyUpdater:
@@ -463,6 +464,168 @@ class TestStrategyVersion:
         )
 
         assert strategy.status == StrategyStatus.PENDING
+
+
+class TestStrategyUpdaterPersistence:
+    """StrategyUpdater 端到端持久化测试
+
+    覆盖闭环链路：
+      反思洞察 → generate_strategies_from_insights → activate_strategy → DB 落盘
+      → 进程重启（构造新实例） → 从 DB hydrate 恢复活跃策略
+
+    每个测试用独立 version_id 前缀隔离，避免跨测试污染。
+    """
+
+    @pytest.fixture
+    def repo(self):
+        """提供 StrategyRepository 实例（不清理历史数据，靠 version_id 前缀隔离）"""
+        return StrategyRepository()
+
+    @pytest.fixture
+    def fresh_updater(self, repo):
+        """每个测试拿到独立的 StrategyUpdater 实例（基于 import-id 前缀生成）"""
+        # 用 id(self) 让 version_id 各测试独立
+        return StrategyUpdater(strategy_repo=repo)
+
+    def test_default_strategies_persisted_on_first_init_for_fresh_type(self, repo):
+        """首次构造某 strategy_type 的活跃策略时（DB 还没有），默认策略被落盘
+
+        注意：本测试用 fresh type，避免和其他测试共用 matching。
+        timeout 是相对独立的策略类型，且该 fixture 之前没人为激活过。
+        """
+        # 强制把"如果有 active"先归档掉，模拟"DB 里这个 type 还没人写过"
+        for v in repo.get_versions_by_type('timeout'):
+            if v['is_active'] == 1:
+                repo.rollback('timeout')
+
+        StrategyUpdater(strategy_repo=repo)
+
+        active = repo.load_all_active()
+        assert 'timeout' in active, 'timeout 默认策略应该被落盘'
+        assert active['timeout']['version_id'].startswith('default_timeout_')
+        assert active['timeout']['is_active'] == 1
+        assert active['timeout']['status'] == 'active'
+
+    def test_activate_strategy_persists_and_deactivates_others(self, repo, fresh_updater):
+        """activate_strategy 后：目标版本落库并 active=1；同 type 默认版本变 archived"""
+        su = fresh_updater
+        # 用规则的 generate 路径（无 LLM）
+        strategies = su.generate_strategies_from_insights({
+            'recent_bad_cases': [{
+                'case_id': 'PERSIST-1',
+                'task_type': 'appointment',
+                'description': '持久化测试1',
+                'severity': 6,
+                'suggested_fix': {'similarity_weight': 0.7, 'max_candidates': 7},
+            }]
+        })
+        assert len(strategies) == 1
+        target = strategies[0]
+
+        # 关键：generate 之后必须能 activate（之前 bug：生成但没注册到 _strategies）
+        ok = su.activate_strategy(target.version_id, target.strategy_type)
+        assert ok, 'activate_strategy 应该能找到刚生成的版本'
+
+        # 验证 DB 状态
+        matching_versions = repo.get_versions_by_type('matching')
+        active_rows = [v for v in matching_versions if v['is_active'] == 1]
+        assert len(active_rows) == 1, f'matching 应该只有一个 active，实际={len(active_rows)}'
+        assert active_rows[0]['version_id'] == target.version_id
+
+        # 同 type 的 default 应该 archived
+        default_row = [v for v in matching_versions if v['version_id'].startswith('default_')][0]
+        assert default_row['is_active'] == 0
+        assert default_row['status'] == 'archived'
+
+    def test_rollback_restores_default_in_db(self, repo, fresh_updater):
+        """rollback 后：default 版本恢复 active=1，之前 active 的版本变 rolled_back"""
+        su = fresh_updater
+        # 先激活一个非默认版本
+        strategies = su.generate_strategies_from_insights({
+            'recent_bad_cases': [{
+                'case_id': 'PERSIST-2',
+                'task_type': 'appointment',
+                'description': 'rollback 测试',
+                'severity': 5,
+                'suggested_fix': {'similarity_weight': 0.65},
+            }]
+        })
+        su.activate_strategy(strategies[0].version_id, strategies[0].strategy_type)
+
+        # 回滚
+        ok = su.rollback_strategy(StrategyType.MATCHING)
+        assert ok, 'rollback 应该成功（即使 default 当前是 archived 也能找到）'
+
+        matching_versions = repo.get_versions_by_type('matching')
+        active_rows = [v for v in matching_versions if v['is_active'] == 1]
+        assert len(active_rows) == 1
+        assert active_rows[0]['version_id'].startswith('default_matching_')
+
+        # 之前激活的避免策略应该 rolled_back
+        avoid_row = [v for v in matching_versions if v['version_id'].startswith('avoid_PERSIST-2')][0]
+        assert avoid_row['status'] == 'rolled_back'
+
+    def test_restart_hydrates_active_strategies_from_db(self, repo):
+        """进程重启（构造新 StrategyUpdater）应该从 DB 恢复活跃策略"""
+        # 阶段 1：触发一个非默认策略并落库
+        su1 = StrategyUpdater(strategy_repo=repo)
+        strategies = su1.generate_strategies_from_insights({
+            'recent_bad_cases': [{
+                'case_id': 'RESTART-1',
+                'task_type': 'appointment',
+                'description': '重启恢复测试',
+                'severity': 7,
+                'suggested_fix': {'similarity_weight': 0.8, 'special_marker': 'restart_test'},
+            }]
+        })
+        target = strategies[0]
+        su1.activate_strategy(target.version_id, target.strategy_type)
+
+        # 阶段 2：模拟重启
+        su2 = StrategyUpdater(strategy_repo=repo)
+
+        active = su2._active_strategies.get('matching')
+        assert active is not None
+        assert active.version_id == target.version_id, \
+            f'重启后 matching 应该恢复成 {target.version_id}，实际={active.version_id}'
+        assert active.config.get('special_marker') == 'restart_test', \
+            'config 也应从 DB 恢复'
+
+    def test_activate_unknown_version_returns_false_without_db_change(self, repo, fresh_updater):
+        """activate 一个不存在的 version_id 应该返回 False，DB 状态不变"""
+        su = fresh_updater
+        before = {v['version_id']: v['is_active']
+                  for v in repo.get_versions_by_type('matching')}
+
+        ok = su.activate_strategy('nonexistent_version_xyz', StrategyType.MATCHING)
+        assert ok is False
+
+        after = {v['version_id']: v['is_active']
+                 for v in repo.get_versions_by_type('matching')}
+        assert before == after, '失败的 activate 不应改 DB'
+
+    def test_repository_upsert_is_idempotent(self, repo):
+        """save_version 同 version_id 重复调用应幂等（不抛异常、不重复插入）"""
+        v_id = 'IDEMPOTENT-1'
+        first = repo.save_version(
+            version_id=v_id,
+            strategy_type='matching',
+            name='第一次',
+            config={'a': 1},
+        )
+        second = repo.save_version(
+            version_id=v_id,
+            strategy_type='matching',
+            name='第二次',
+            config={'b': 2},  # 即使 config 不同，也不覆盖
+        )
+        assert first == second, '幂等返回的 row id 应相同'
+
+        # 实际保存的应该是第一次的 config
+        versions = [v for v in repo.get_versions_by_type('matching') if v['version_id'] == v_id]
+        assert len(versions) == 1
+        assert versions[0]['name'] == '第一次'
+        assert versions[0]['config'] == {'a': 1}
 
 
 if __name__ == '__main__':
