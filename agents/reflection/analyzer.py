@@ -800,22 +800,22 @@ class ReflectionAnalyzer:
         """生成根因分析"""
         causes = []
 
-        # 基于错误类型推断根因
-        if error_types.get('timeout') > 0:
+        # 基于错误类型推断根因（Counter.get() 返回 None 而非 0，需要提供默认值）
+        if error_types.get('timeout', 0) > 0:
             causes.append({
                 "cause": "LLM响应超时",
                 "impact": "high",
                 "suggestion": "考虑增加超时时间或优化LLM调用"
             })
 
-        if error_types.get('slot_unavailable') > 0:
+        if error_types.get('slot_unavailable', 0) > 0:
             causes.append({
                 "cause": "时间段冲突",
                 "impact": "medium",
                 "suggestion": "优化时间段推荐逻辑，提前检测可用性"
             })
 
-        if error_types.get('parse_error') > 0:
+        if error_types.get('parse_error', 0) > 0:
             causes.append({
                 "cause": "LLM输出格式错误",
                 "impact": "high",

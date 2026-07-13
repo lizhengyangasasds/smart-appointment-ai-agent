@@ -83,6 +83,7 @@ async def _run_one(case: EvalCase) -> EvalResult:
             expected=case.expected,
             got={"evaluation": evaluation or {}, "exception": True},
             error=err,
+            raw_response=_out,
         )
 
     if not evaluation:
@@ -144,6 +145,7 @@ async def _run_one(case: EvalCase) -> EvalResult:
         turns=evaluation.get("turns_count") or case.turns,
         expected=expected,
         got={"evaluation": evaluation, "matches": matches},
+        raw_response=_out,
     )
 
 

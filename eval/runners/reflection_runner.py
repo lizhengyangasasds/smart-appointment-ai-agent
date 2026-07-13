@@ -116,6 +116,7 @@ async def _run_one(case: EvalCase) -> EvalResult:
             got_should_reflect=False,
             reflection_log_written=False,
             bad_cases_non_empty=False,
+            raw_response=result or "",
         )
 
     evaluation = (result or {}).get("evaluation") or {}
@@ -168,6 +169,7 @@ async def _run_one(case: EvalCase) -> EvalResult:
         got_should_reflect=got_should_reflect,
         reflection_log_written=reflection_log_written,
         bad_cases_non_empty=bad_cases_non_empty,
+        raw_response=str(result),
     )
 
 

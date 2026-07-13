@@ -186,9 +186,12 @@ class StrategyUpdater:
     使用 LLM 生成具体的策略参数
     """
 
-    def __init__(self, reflection_repo=None, llm=None):
+    def __init__(self, reflection_repo=None, llm=None, strategy_repo=None):
         self.reflection_repo = reflection_repo
         self.llm = llm
+        # 策略版本仓库（可选）。如果传了就启用持久化：每次激活/回滚会同步到 DB，
+        # 启动时也会从 DB 回读已有的活跃策略覆盖内存默认（实现"重启即恢复"）。
+        self.strategy_repo = strategy_repo
         self.logger = logging.getLogger(__name__)
 
         # 内存中的策略存储
@@ -212,8 +215,74 @@ class StrategyUpdater:
         # 策略缓存
         self._strategy_cache: Dict[str, Dict[str, Any]] = {}
 
-        # 初始化默认策略
+        # 初始化默认策略（先初始化内存，再尝试用 DB 已存活的策略覆盖）
         self._init_default_strategies()
+        self._hydrate_from_db()
+
+    def _hydrate_from_db(self) -> None:
+        """启动时从 DB 回读活跃策略。
+
+        行为：
+        - 若 DB 里某 strategy_type 有活跃策略，则用 DB 版本覆盖内存默认
+        - 若 DB 里没有，则把内存默认（active）写入 DB（首次启动建表）
+        - 失败时只 warn，不阻塞启动
+        """
+        if not self.strategy_repo:
+            return
+        try:
+            persisted = self.strategy_repo.load_all_active()
+        except Exception as e:
+            self.logger.warning(f"[StrategyUpdater] 从 DB 回读策略失败: {e}")
+            return
+
+        if not persisted:
+            # DB 是空的：把内存默认落盘，作为 baseline
+            for st in StrategyType:
+                active = self._active_strategies.get(st.value)
+                if active:
+                    try:
+                        self.strategy_repo.save_version(
+                            version_id=active.version_id,
+                            strategy_type=st.value,
+                            name=active.name,
+                            config=active.config,
+                            priority=active.priority,
+                            trigger_reason=active.trigger_reason,
+                            status=active.status.value,
+                            created_by=active.created_by,
+                            meta=active.metadata,
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"[StrategyUpdater] 落盘默认策略失败 {st.value}: {e}")
+            return
+
+        # 用 DB 覆盖内存
+        for st_type_str, info in persisted.items():
+            try:
+                version = StrategyVersion(
+                    version_id=info['version_id'],
+                    strategy_type=StrategyType(st_type_str),
+                    name=info.get('name', ''),
+                    config=info.get('config', {}),
+                    priority=info.get('priority', 0),
+                    trigger_reason=info.get('trigger_reason', ''),
+                    status=StrategyStatus(info.get('status', 'active')),
+                    created_by=info.get('created_by', 'system'),
+                    metadata=info.get('meta', {}) or {},
+                )
+                # 把 DB 版塞进内存（如果内存里已有同名 version 就替换）
+                self._strategies.setdefault(st_type_str, [])
+                replaced = False
+                for idx, s in enumerate(self._strategies[st_type_str]):
+                    if s.version_id == version.version_id:
+                        self._strategies[st_type_str][idx] = version
+                        replaced = True
+                        break
+                if not replaced:
+                    self._strategies[st_type_str].append(version)
+                self._active_strategies[st_type_str] = version
+            except Exception as e:
+                self.logger.warning(f"[StrategyUpdater] 恢复策略 {st_type_str} 失败: {e}")
 
     def _init_default_strategies(self) -> None:
         """初始化默认策略"""
@@ -274,7 +343,7 @@ class StrategyUpdater:
             insights: 反思洞察数据
 
         Returns:
-            生成的策略列表
+            生成的策略列表（已注册到 self._strategies，可被 activate_strategy 找到）
         """
         # 检查是否应该使用 LLM
         should_use_llm = (
@@ -284,9 +353,17 @@ class StrategyUpdater:
         )
 
         if should_use_llm:
-            return self._generate_strategies_with_agent(insights)
+            strategies = self._generate_strategies_with_agent(insights)
         else:
-            return self._generate_strategies_with_rules(insights)
+            strategies = self._generate_strategies_with_rules(insights)
+
+        # 把生成的策略注册到 self._strategies，保证后续 activate_strategy(version_id)
+        # 能找到。否则 engine.py 598 / 839 行的「generate → activate」流程会断。
+        for s in strategies:
+            bucket = self._strategies.setdefault(s.strategy_type.value, [])
+            if not any(x.version_id == s.version_id for x in bucket):
+                bucket.append(s)
+        return strategies
 
     def _has_sufficient_insights(self, insights: Dict[str, Any]) -> bool:
         """检查是否有足够的洞察用于 LLM 生成"""
@@ -592,92 +669,6 @@ class StrategyUpdater:
         # Fallback 到规则
         return self._generate_avoidance_strategy(bad_case)
 
-    def _init_default_strategies(self) -> None:
-        """初始化默认策略"""
-        default_configs = {
-            StrategyType.MATCHING: {
-                'similarity_weight': 0.4,
-                'gender_preference_weight': 0.2,
-                'availability_weight': 0.3,
-                'experience_weight': 0.1,
-                'fallback_enabled': True,
-                'max_candidates': 5
-            },
-            StrategyType.RECOMMENDATION: {
-                'personalization_level': 0.8,
-                'diversity_weight': 0.2,
-                'recency_weight': 0.3,
-                'cold_start_mode': 'popularity'
-            },
-            StrategyType.ROUTING: {
-                'appointment_threshold': 0.6,
-                'consultation_threshold': 0.5,
-                'escalation_threshold': 0.3,
-                'fallback_to_consultation': True
-            },
-            StrategyType.PROMPT: {
-                'appointment_style': 'detailed',
-                'consultation_style': 'professional',
-                'error_handling': 'apologize_and_alternatives',
-                'confirmation_required': True
-            },
-            StrategyType.TIMEOUT: {
-                'max_turns': 15,
-                'confirmation_timeout': 120,
-                'idle_timeout': 300,
-                'escalation_after_turns': 10
-            }
-        }
-
-        for strategy_type, config in default_configs.items():
-            version = StrategyVersion(
-                version_id=f"default_{strategy_type.value}_{datetime.now().strftime('%Y%m%d')}",
-                strategy_type=strategy_type,
-                name=f"默认{strategy_type.value}策略",
-                config=config,
-                priority=0,
-                trigger_reason="系统初始化",
-                status=StrategyStatus.ACTIVE
-            )
-            self._strategies[strategy_type.value].append(version)
-            self._active_strategies[strategy_type.value] = version
-
-    def generate_strategies_from_insights(self, insights: Dict[str, Any]) -> List[StrategyVersion]:
-        """
-        从反思洞察生成策略更新
-
-        Args:
-            insights: 反思洞察数据
-
-        Returns:
-            生成的策略列表
-        """
-        new_strategies = []
-
-        # 1. 从坏 case 生成避免策略
-        bad_cases = insights.get('recent_bad_cases', [])
-        for case in bad_cases:
-            strategy = self._generate_avoidance_strategy(case)
-            if strategy:
-                new_strategies.append(strategy)
-
-        # 2. 从推荐生成优化策略
-        recommendations = insights.get('actionable_recommendations', [])
-        for rec in recommendations:
-            if rec.get('priority') == 'high':
-                strategy = self._generate_optimization_strategy(rec)
-                if strategy:
-                    new_strategies.append(strategy)
-
-        # 3. 从模式分析生成适应策略
-        pattern_insights = insights.get('pattern_insights', {})
-        for pattern_type, pattern_data in pattern_insights.items():
-            strategy = self._generate_adaptation_strategy(pattern_type, pattern_data)
-            if strategy:
-                new_strategies.append(strategy)
-
-        return new_strategies
-
     def _generate_avoidance_strategy(self, bad_case: Dict[str, Any]) -> Optional[StrategyVersion]:
         """从坏 case 生成避免策略（规则模式）"""
         trigger = bad_case.get('trigger', {})
@@ -857,6 +848,10 @@ class StrategyUpdater:
         target_strategy.status = StrategyStatus.ACTIVE
         self._active_strategies[strategy_type.value] = target_strategy
 
+        # 持久化：把新版本插库 + 把同 type 其他版本置归档
+        # 失败只 warn，不阻塞主流程（内存态已生效）
+        self._persist_strategy_change(target_strategy, 'active')
+
         self.logger.info(f"激活策略: {version_id} ({strategy_type.value})")
         return True
 
@@ -870,9 +865,11 @@ class StrategyUpdater:
         Returns:
             是否回滚成功
         """
+        # 找默认版本（version_id 以 default_ 开头，无论当前什么状态）。
+        # 默认策略被 archive 是正常情况：之前 activate 别的版本时把 default 也归档了。
         default_strategy = None
         for s in self._strategies.get(strategy_type.value, []):
-            if 'default' in s.version_id and s.status == StrategyStatus.ACTIVE:
+            if s.version_id.startswith('default_'):
                 default_strategy = s
                 break
 
@@ -888,6 +885,13 @@ class StrategyUpdater:
         # 激活默认策略
         default_strategy.status = StrategyStatus.ACTIVE
         self._active_strategies[strategy_type.value] = default_strategy
+
+        # 持久化：调 repo 回滚（DB 会自动把同 type 其他版本置 rolled_back、激活默认）
+        if self.strategy_repo:
+            try:
+                self.strategy_repo.rollback(strategy_type.value)
+            except Exception as e:
+                self.logger.warning(f"[StrategyUpdater] 回滚落库失败: {e}")
 
         self.logger.info(f"回滚策略: {strategy_type.value}")
         return True
@@ -914,6 +918,33 @@ class StrategyUpdater:
             'trigger_reason': active.trigger_reason,
             'created_at': active.created_at.isoformat()
         }
+
+    def _persist_strategy_change(self, strategy: StrategyVersion, status: str) -> None:
+        """把策略版本同步到 DB：先 save_version（idempotent insert），再 activate。
+
+        异常被吞掉（warn 即可），不阻塞主流程：内存里策略已经生效。
+        """
+        if not self.strategy_repo:
+            return
+        try:
+            self.strategy_repo.save_version(
+                version_id=strategy.version_id,
+                strategy_type=strategy.strategy_type.value,
+                name=strategy.name,
+                config=strategy.config,
+                priority=strategy.priority,
+                trigger_reason=strategy.trigger_reason,
+                status=status,
+                created_by=strategy.created_by,
+                meta=strategy.metadata,
+            )
+            if status == 'active':
+                self.strategy_repo.activate(
+                    version_id=strategy.version_id,
+                    strategy_type=strategy.strategy_type.value,
+                )
+        except Exception as e:
+            self.logger.warning(f"[StrategyUpdater] 持久化策略变更失败: {e}")
 
     def get_all_active_strategies(self) -> Dict[str, Dict[str, Any]]:
         """获取所有活跃策略"""
