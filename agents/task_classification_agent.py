@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 from config.model_provider import create_chat_model
-from config.constants import SharedState, StateEnum
+from config.constants import StateEnum
 from .task_classification import (
     TaskClassifier,
     StateManager,
@@ -22,7 +22,7 @@ class TaskClassificationAgent:
     3. 管理与其他Agent的协调
     """
     
-    def __init__(self, appointment_agent, consultant_agent):
+    def __init__(self, appointment_agent, consultant_agent, shared_state=None):
         # 基础设置
         self.appointment_agent = appointment_agent
         self.consultant_agent = consultant_agent
@@ -30,26 +30,30 @@ class TaskClassificationAgent:
         # 初始化LLM
         self.llm = self._initialize_llm()
         
-        # 初始化组件
-        self.state_manager = StateManager(SharedState())
+        # 与 chat_handler 共享同一个 SharedState 实例，避免状态隔离导致的路由错乱（Q1 修复）
+        self.state_manager = StateManager(shared_state)
         self.task_classifier = TaskClassifier(self.llm)
-        self.agent_router = AgentRouter(
-            appointment_agent, 
-            consultant_agent, 
-            self.state_manager
-        )
+        # Q4 依赖：ClassificationProcessor 必须先于 AgentRouter 创建，以便 AgentRouter 持有分类处理器引用
         self.unrelated_handler = UnrelatedHandler(self.state_manager)
         self.classification_processor = ClassificationProcessor(
             self.task_classifier,
             self.state_manager,
-            self.agent_router,
+            None,  # 占位，初始化后由下方补全
             self.unrelated_handler
         )
+        self.agent_router = AgentRouter(
+            appointment_agent, 
+            consultant_agent, 
+            self.state_manager,
+            self.classification_processor  # Q4 修复：传入分类处理器以支持兜底分类
+        )
+        # 补全 ClassificationProcessor 中缺失的 agent_router 引用
+        self.classification_processor.agent_router = self.agent_router
         
         # 设置回调函数
         self._setup_callbacks()
         
-        # 保持向后兼容的state属性
+        # 保持向后兼容的state属性（指向共享实例）
         self.state = self.state_manager.state
 
     def _initialize_llm(self):

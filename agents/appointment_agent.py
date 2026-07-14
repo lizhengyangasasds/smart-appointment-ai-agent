@@ -35,10 +35,13 @@ class AppointmentAgent(ReflectionAwareMixin):
     """
 
     def __init__(self, session_id=None, unrelated_callback=None, reflection_engine=None,
-                 semantic_memory=None):
+                 semantic_memory=None, consultant_fallback_callback=None):
         # 基础设置
         self.session_id = session_id or str(uuid.uuid4())
         self.unrelated_callback = unrelated_callback
+        # 兜底：用户在信息不完整追问阶段改问"咨询/价格/项目"时，直跳咨询机器人
+        # （避免被归类机器人拒掉，Q4 修复的 appointment 端兜底）
+        self.consultant_fallback_callback = consultant_fallback_callback
         self.state = None
         self.logger = logging.getLogger(__name__)
 

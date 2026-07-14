@@ -116,11 +116,27 @@ class _MemoryAwareChatSession:
         reflection_svc = _get_reflection_service()
 
         # 初始化预约 Agent（注入反思引擎和语义记忆服务）
+        # 兜底：appointment → consultant 让步时，由 consultant_fallback_callback
+        # 直接调用 consultant_agent.consult_stream；具体闭包在两者初始化完成后注入。
+        def _consultant_fallback_factory():
+            async def _cb(user_input: str, memory_context: str = ""):
+                agent = self.__dict__.get("_consultant_agent") if hasattr(self, "__dict__") else None
+                if agent is None:
+                    return "（咨询机器人尚未就绪）"
+                gen = agent.consult_stream(user_input, memory_context)
+                tokens = []
+                async for token in gen:
+                    tokens.append(token)
+                return "".join(tokens) if tokens else ""
+            return _cb
+        self._consultant_fallback_callback = _consultant_fallback_factory()
+
         self._appointment_agent = AppointmentAgent(
             session_id=session_id,
             unrelated_callback=None,
             reflection_engine=reflection_svc.agent.engine if reflection_svc.is_available else None,
             semantic_memory=self.memory_manager.semantic,
+            consultant_fallback_callback=self._consultant_fallback_callback,
         )
         self._appointment_agent.set_shared_state(self._shared_state)
 
@@ -131,10 +147,11 @@ class _MemoryAwareChatSession:
         )
         self._consultant_agent.set_shared_state(self._shared_state)
 
-        # 初始化任务分类 Agent
+        # 初始化任务分类 Agent（传入同一个 _shared_state，确保状态同步，Q1 修复）
         self._task_agent = TaskClassificationAgent(
             appointment_agent=self._appointment_agent,
             consultant_agent=self._consultant_agent,
+            shared_state=self._shared_state,
         )
 
         self._summary_llm = create_chat_model(temperature=0.3)

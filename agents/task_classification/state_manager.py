@@ -52,11 +52,17 @@ class StateManager:
         return self.get_current_state() == StateEnum.CONSULT
     
     def transition_to_appointment(self) -> None:
-        """转换到预约状态"""
+        """转换到预约状态（Q2 修复：强制校验，禁止业务态互跳）"""
+        if not self.can_transition_to(StateEnum.APPOINTMENT):
+            print(f"[StateManager] 非法状态转换被拦截: {self.get_current_state()} -> APPOINTMENT")
+            return
         self.set_state(StateEnum.APPOINTMENT)
     
     def transition_to_consultation(self) -> None:
-        """转换到咨询状态"""
+        """转换到咨询状态（Q2 修复：强制校验，禁止业务态互跳）"""
+        if not self.can_transition_to(StateEnum.CONSULT):
+            print(f"[StateManager] 非法状态转换被拦截: {self.get_current_state()} -> CONSULT")
+            return
         self.set_state(StateEnum.CONSULT)
     
     def get_state_description(self) -> str:

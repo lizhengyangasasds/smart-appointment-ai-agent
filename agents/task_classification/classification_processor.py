@@ -79,12 +79,13 @@ class ClassificationProcessor:
             yield f"[ERROR]处理任务时发生错误: {str(e)}"
             self.state_manager.force_reset()
     
-    async def process_task_sync(self, task: str) -> str:
+    async def process_task_sync(self, task: str, memory_context: str = "") -> str:
         """
         同步处理任务分类和路由（非流式）
         
         Args:
             task: 用户输入的任务内容
+            memory_context: 外部记忆上下文（Q3 修复：补传以提升分类准确率）
             
         Returns:
             str: 处理结果
@@ -92,7 +93,7 @@ class ClassificationProcessor:
         try:
             # 检查是否需要进行分类
             if self.state_manager.should_classify():
-                category = await self.task_classifier.classify_task(task)
+                category = await self.task_classifier.classify_task(task, memory_context)
                 
                 if category == "appointment" and self.agent_router.appointment_agent:
                     self.state_manager.transition_to_appointment()

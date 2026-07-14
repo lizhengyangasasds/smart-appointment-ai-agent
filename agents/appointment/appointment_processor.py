@@ -185,6 +185,18 @@ class AppointmentProcessor:
         # 这里返回 False，表示信息还不完整，需要继续等待用户输入
         return False
     
+    # 兜底：在预约机器人内检测用户输入是否含"咨询/价格/项目/技师介绍"等
+    # 关键词，若有则跳过归类机器人，直接让步给咨询机器人。
+    # （这是 Q4 修复的 appointment 端兜底，配合 agent_router._CROSS_BUSINESS_KEYWORDS 双向补齐）
+    _CONSULT_FALLBACK_KEYWORDS = (
+        "咨询", "问问", "想问", "了解", "介绍一下", "介绍下",
+        "价格", "多少钱", "怎么收费",
+        "项目", "套餐", "有什么服务",
+        "营业时间", "几点开门", "几点关门",
+        "地址", "在哪", "在哪里",
+        "功效", "有什么用", "适合",
+    )
+
     async def handle_unrelated_request(
         self,
         user_input: str,
@@ -197,8 +209,32 @@ class AppointmentProcessor:
         ⚠️ 关键：unrelated_callback 是 async 函数，同步调用拿到的是 coroutine，
         必须 await 拿到结果。如果它返回字符串（直接 yield）或 async gen（yield token），
         都要正确处理。历史上这里直接 yield coroutine 对象导致 callback 永不执行。
+
+        兜底分支：当本实例注入了 consultant_fallback_callback，且用户输入命中
+        咨询关键词时，直接让步给咨询机器人，避免被归类机器人"无法处理"拒掉。
         """
         import inspect
+        # appointment 端兜底：判断用户是不是其实想咨询
+        if getattr(self, 'consultant_fallback_callback', None):
+            if any(kw in (user_input or "") for kw in self._CONSULT_FALLBACK_KEYWORDS):
+                yield "[THOUGHT][预约机器人]检测到用户输入为咨询类问题，让步给咨询机器人处理\n"
+                yield "[REPLY][预约机器人]您的问题更像是咨询服务，让我为您转接到咨询机器人。\n"
+                yield "[CONSULT_FALLBACK]"
+                try:
+                    result = self.consultant_fallback_callback(user_input, memory_context)
+                    if inspect.iscoroutine(result):
+                        result = await result
+                    if hasattr(result, '__aiter__'):
+                        async for token in result:
+                            yield token
+                    elif result:
+                        yield result
+                    return
+                except Exception as e:
+                    print(f"consultant_fallback_callback 失败: {e}")
+                    yield f"[ERROR]转接咨询时发生错误: {str(e)}\n"
+                    # 不立即兜底到归类机器人，下面继续走归类兜底
+
         if unrelated_callback:
             try:
                 yield "[REPLY][预约机器人]和预约信息无关，已交给归类机器人处理\n"

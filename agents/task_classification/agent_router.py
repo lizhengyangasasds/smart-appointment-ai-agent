@@ -9,13 +9,15 @@
 """
 
 from typing import Any, AsyncGenerator
+from config.constants import StateEnum
 from .state_manager import StateManager
 
 
 class AgentRouter:
     """智能体路由器 - 根据任务类型路由到对应的处理Agent"""
     
-    def __init__(self, appointment_agent: Any, consultant_agent: Any, state_manager: StateManager):
+    def __init__(self, appointment_agent: Any, consultant_agent: Any, state_manager: StateManager,
+                 classification_processor: Any = None):
         """
         初始化路由器
         
@@ -23,10 +25,12 @@ class AgentRouter:
             appointment_agent: 预约处理Agent
             consultant_agent: 咨询处理Agent
             state_manager: 状态管理器
+            classification_processor: 分类处理器（Q4 修复：支持兜底分类）
         """
         self.appointment_agent = appointment_agent
         self.consultant_agent = consultant_agent
         self.state_manager = state_manager
+        self.classification_processor = classification_processor
         
         # 设置Agent的共享状态
         self._setup_agent_states()
@@ -57,9 +61,6 @@ class AgentRouter:
         # 转换状态
         self.state_manager.transition_to_appointment()
 
-        # 生成思考提示
-        yield "[THOUGHT][归类机器人] 归类机器人：我发现这是一个预约任务，我将转给预约机器人处理。"
-
         # 调用预约Agent，传入记忆上下文
         try:
             async for token in self.appointment_agent.run_stream(user_input=task, memory_context=memory_context):
@@ -86,9 +87,6 @@ class AgentRouter:
         # 转换状态
         self.state_manager.transition_to_consultation()
 
-        # 生成思考提示
-        yield "[THOUGHT][归类机器人] 归类机器人：我发现这是一个咨询任务，我将转给咨询机器人处理。"
-
         # 调用咨询Agent，传入记忆上下文
         try:
             async with self.consultant_agent as agent:
@@ -97,6 +95,20 @@ class AgentRouter:
         except Exception as e:
             yield f"[ERROR]咨询处理失败: {str(e)}"
             self.state_manager.reset_to_classify()
+
+    # 跨业务关键词：用户明确提到另一个业务时强制重新分类（Q4 修复：防止用户卡在单一业务流）
+    # 双向补齐：用户在 APPOINTMENT 状态说"咨询/价格/项目"时强制重分类；反之亦然
+    _CROSS_BUSINESS_KEYWORDS = {
+        StateEnum.APPOINTMENT: [
+            "咨询", "问问", "想问", "了解", "介绍一下", "价格", "多少钱",
+            "项目", "套餐", "营业时间", "地址", "在哪", "几点开门",
+        ],
+        StateEnum.CONSULT: [
+            "预约", "订", "下单", "几点", "哪天", "什么时候",
+            "哪个技师", "哪位技师", "男技师", "女技师",
+            "力气大", "力气小", "帮我约", "我想约",
+        ],
+    }
 
     async def route_by_state(self, task: str, memory_context: str = "") -> AsyncGenerator[str, None]:
         """
@@ -109,10 +121,20 @@ class AgentRouter:
         Yields:
             str: 流式响应内容
         """
-        if self.state_manager.is_in_appointment_flow():
+        # Q4 修复：检测跨业务关键词，强制重新分类
+        current_state = self.state_manager.get_current_state()
+        cross_keywords = self._CROSS_BUSINESS_KEYWORDS.get(current_state, [])
+        if cross_keywords and any(kw in task for kw in cross_keywords):
+            self.state_manager.reset_to_classify()
+            yield "[CLASSIFY]"
+            async for token in self.classification_processor.process_task_stream(task, memory_context):
+                yield token
+            return
+
+        if current_state == StateEnum.APPOINTMENT:
             async for token in self.appointment_agent.run_stream(user_input=task, memory_context=memory_context):
                 yield token
-        elif self.state_manager.is_in_consultation_flow():
+        elif current_state == StateEnum.CONSULT:
             async with self.consultant_agent as agent:
                 async for token in agent.consult_stream(task, memory_context=memory_context):
                     yield token
