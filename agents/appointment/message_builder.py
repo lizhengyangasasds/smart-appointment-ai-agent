@@ -147,6 +147,61 @@ class MessageBuilder:
         """根据缺失信息创建询问"""
         questions = [self.missing_info_prompts.get(field, f"请补充{field}信息") for field in missing_info]
         return "\n" + " ".join(questions) + "\n"
+
+    def create_unknown_service_clarification(self, unknown_service: str,
+                                             clarification_hint: str = "") -> str:
+        """当用户提到知识库外的服务项目时（如油压、火罐、艾灸），生成反问话术。
+
+        Args:
+            unknown_service: 用户提到的原词（油压、火罐、艾灸 等）
+            clarification_hint: LLM 生成的提示文案（如果可用，优先使用）
+
+        Returns:
+            友好的反问消息
+        """
+        # 优先用 LLM 生成的 hint，没有时用模板
+        if clarification_hint and clarification_hint.strip():
+            return f"\n机器人：{clarification_hint.strip()}\n"
+
+        # 模板兜底 —— 列出本系统支持的服务，引导用户选择
+        supported_list = "经络、肩颈、足疗、推拿、按摩、全身、SPA"
+        return (
+            f"\n机器人：抱歉，目前我们暂不提供「{unknown_service}」服务。"
+            f"本店主要项目有：{supported_list} 等。"
+            f"请问您想预约其中哪一项呢？\n"
+        )
+
+    def create_similar_service_clarification(self, unknown_service: str,
+                                             best_match: str,
+                                             best_score: float,
+                                             second_candidates: list = None) -> str:
+        """基于知识库相似度的"降级反问"文案 —— 用户体验升级关键函数。
+
+        当用户提到库外服务词（如"油压"）时，先用 embedding 相似度找最近的库内服务，
+        如果分数够高就直接给出"您是想约 XX 吗？"的高匹配反问 —— 比"列举所有服务"更精准。
+        分数不够高时给 top3 候选让用户挑。
+
+        Args:
+            unknown_service: 用户原词（油压、火罐 等）
+            best_match: 相似度最高的库内服务（如 拔罐/足疗）
+            best_score: 相似度分数（0~1）
+            second_candidates: [(service, score), ...] 备选 top2/top3，给低分场景用
+
+        Returns:
+            反问消息（带具体推荐项 + 备选项）
+        """
+        score_pct = int(round(best_score * 100))
+        if second_candidates:
+            others = "、".join(s for s, _ in second_candidates[:3])
+            return (
+                f"\n机器人：抱歉，店里暂时没有「{unknown_service}」这个项目。"
+                f"看起来您是想约「{best_match}」（相似度 {score_pct}%）吗？"
+                f"如果不合适，也可以选择：{others}。请问您想预约哪一项呢？\n"
+            )
+        return (
+            f"\n机器人：抱歉，店里暂时没有「{unknown_service}」这个项目。"
+            f"看起来您是想约「{best_match}」（相似度 {score_pct}%）吗？\n"
+        )
     
     def create_unrelated_message(self) -> str:
         """创建无关请求的消息"""

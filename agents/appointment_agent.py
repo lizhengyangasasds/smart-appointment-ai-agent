@@ -327,7 +327,10 @@ class AppointmentAgent(ReflectionAwareMixin):
             "project": None,
             "preference": None,
             "technician": None,
-            "technician_name": None
+            "technician_name": None,
+            # Step 2 闭环字段：跟踪 unknown_service 状态，避免重复反问
+            "unknown_service": None,
+            "last_clarification_hint": None,
         }
         self.finished = False
         self.chat_history.clear()
@@ -525,6 +528,73 @@ class AppointmentAgent(ReflectionAwareMixin):
             f"success_level={result.get('success_level')} "
             f"success_rate={result.get('success_rate')}"
         )
+
+        # 闭环触发：每个 AppointmentAgent 跑完一次任务后立即触发反思，写一条 reflection_log。
+        # 这是让 reflection_logs_count > 0 的关键 —— A/B 评测里这是反思系统可观测性的核心指标。
+        # 仅在 A 路径（reflection_engine 已注入）触发；B 路径 (_reflection_engine=None) 跳过，
+        # 保证 B 组不会污染 reflection_logs（评测对比干净）。
+        if self._reflection_engine is not None:
+            self._trigger_reflection(result, reason)
+
+    def _trigger_reflection(self, eval_result: Dict[str, Any], reason: str) -> None:
+        """对当前任务结果触发反思，写入 reflection_logs。
+
+        触发逻辑：
+        - 仅 appointment 任务（reflection_engine 没有更细的 task_type 区分，appointment 是唯一类型）
+        - 失败时（success_level = FAILED / should_reflect=true）触发完整反思；
+          成功时也写一条轻量级 reflection_log（用于训练"成功模式"信号）。
+        - 异常被外层 try/except 兜底，反思系统挂了不阻塞主流程。
+
+        修复背景：
+        - 之前 reflection_logs_a_count 恒为 0 —— AppointmentAgent 从未调用 engine.reflect_on_task()
+        - 修复后：每个 A-variant case 跑完都会自动落 1 条 reflection_log
+        """
+        import traceback
+        try:
+            engine = self._reflection_engine
+            # 构造 task_result：把评估数据 + appointment_history 一起给反思引擎
+            task_result = {
+                "appointment_history": dict(self.appointment_history),
+                "eval_result": eval_result,
+                "reason": reason,
+            }
+            # 同步路径下用 asyncio.run 调 async reflect_on_task；
+            # 如果已经在 async 上下文里则包在 task 里异步执行
+            import asyncio
+            try:
+                asyncio.get_running_loop()
+                # 已在 async 上下文：fire-and-forget，避免阻塞主流程
+                loop = asyncio.get_running_loop()
+                loop.create_task(engine.reflect_on_task(
+                    session_id=self.session_id,
+                    task_type="appointment",
+                    task_result=task_result,
+                    turns_count=self._task_turns,
+                    completion_time=eval_result.get("completion_time"),
+                    error=None,
+                ))
+                self.logger.info(
+                    f"[Reflection] reflect_on_task 已派发 (async) session={self.session_id}"
+                )
+            except RuntimeError:
+                # 没有 running loop（同步上下文）：用 asyncio.run
+                result = asyncio.run(engine.reflect_on_task(
+                    session_id=self.session_id,
+                    task_type="appointment",
+                    task_result=task_result,
+                    turns_count=self._task_turns,
+                    completion_time=eval_result.get("completion_time"),
+                    error=None,
+                ))
+                self.logger.info(
+                    f"[Reflection] reflect_on_task 完成 (sync) session={self.session_id} "
+                    f"reflection_id={result.get('reflection_id') if isinstance(result, dict) else 'n/a'}"
+                )
+        except Exception as ref_err:
+            # 反思系统挂了不能阻塞主流程 —— warn 后继续
+            self.logger.warning(
+                f"[Reflection] reflect_on_task 触发失败: {ref_err}\n{traceback.format_exc()}"
+            )
 
     def validate_technician_recommendation(
         self,

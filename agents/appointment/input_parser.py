@@ -25,34 +25,134 @@ def _format_bad_cases_for_prompt(bad_cases: Optional[List[Dict[str, Any]]], limi
     1. 严格控制 token 数（每条只截 description + suggested_fix，避免 prompt 膨胀）
     2. 只保留与预约链路直接相关的描述，避免污染输入解析
     3. 返回空字符串时上游不拼入 prompt，对无反思数据的早期阶段零成本
+    4. **Step 2 特殊处理**：category=='unknown_service_clarification' 的 case
+       不仅是规避警告，而是直接渲染成"反问指令"注入 prompt —— 让 LLM 真的具备反问能力。
     """
     if not bad_cases:
         return ""
 
-    lines: List[str] = []
-    for bc in bad_cases[:limit]:
-        desc = (bc.get("description") or "").strip()
-        fix = bc.get("suggested_fix") or {}
-        fix_text = ""
-        if isinstance(fix, dict):
-            fix_text = (fix.get("note") or fix.get("action") or "").strip()
-        elif isinstance(fix, str):
-            fix_text = fix.strip()
+    # 先分离"反问指令型"坏案例（Step 2）和普通坏案例
+    clarification_cases: List[Dict[str, Any]] = []
+    normal_cases: List[Dict[str, Any]] = []
+    for bc in bad_cases:
+        if bc.get("category") == "unknown_service_clarification":
+            clarification_cases.append(bc)
+        else:
+            normal_cases.append(bc)
 
-        if desc:
-            lines.append(f"- {desc}")
-        if fix_text:
-            lines.append(f"  规避建议: {fix_text}")
+    blocks: List[str] = []
 
-    if not lines:
-        return ""
+    # Step 2 反问指令：单独一段强提示，让 LLM 看到库外服务词时主动反问
+    if clarification_cases:
+        # 把 suggested_fix.note 当作指令注入（service catalog 文本）
+        notes: List[str] = []
+        for cc in clarification_cases:
+            fix = cc.get("suggested_fix") or {}
+            note = ""
+            if isinstance(fix, dict):
+                note = (fix.get("note") or "").strip()
+            elif isinstance(fix, str):
+                note = fix.strip()
+            if note:
+                notes.append(note)
+        if notes:
+            blocks.append(
+                "\n【反思系统注入：库外服务反问协议】\n"
+                + "\n".join(notes)
+                + "\n【反问协议结束】\n"
+            )
 
-    body = "\n".join(lines)
+    # 普通坏案例：原逻辑保持
+    if normal_cases:
+        lines: List[str] = []
+        for bc in normal_cases[:limit]:
+            desc = (bc.get("description") or "").strip()
+            fix = bc.get("suggested_fix") or {}
+            fix_text = ""
+            if isinstance(fix, dict):
+                fix_text = (fix.get("note") or fix.get("action") or "").strip()
+            elif isinstance(fix, str):
+                fix_text = fix.strip()
+
+            if desc:
+                lines.append(f"- {desc}")
+            if fix_text:
+                lines.append(f"  规避建议: {fix_text}")
+
+        if lines:
+            body = "\n".join(lines)
+            blocks.append(
+                "\n【已知坏案例（来自反思系统，请避免重复犯）】\n"
+                f"{body}\n"
+                "解析用户输入时如果看到与上述坏案例相似的场景，请优先按规避建议处理（例如更谨慎地拆分姓名/偏好）。\n"
+            )
+
+    return "".join(blocks)
+
+
+# 已知服务项目清单（知识库内） —— 与 TechnicianFinder._looks_like_valid_project 保持一致
+SUPPORTED_SERVICES = [
+    "按摩", "推拿", "足疗", "spa", "理疗", "养生",
+    "经络", "刮痧", "拔罐", "肩颈", "腰背", "头部",
+    "全身", "局部", "中式", "泰式", "精油",
+]
+
+
+def _format_service_catalog_for_prompt() -> str:
+    """把服务项目清单（含库内/库外区分）注入 prompt。
+
+    ⚠️ 重要：本函数保留但目前**不在默认 prompt 中调用**。
+    改成只在反思系统识别到 unknown_service pattern 时，由 AppointmentAgent 通过
+    update_reflection_bad_cases 注入反问指令 —— 这样 A/B 评测才能体现
+    "反思系统驱动的反问能力"。
+
+    保留本函数供未来直接复用（如要做硬规则反问）。
+    """
+    supported_list = "、".join(SUPPORTED_SERVICES)
+    examples_unsupported = "油压、火罐、艾灸、针灸、热敷、拔罐减肥、淋巴排毒、刮痧减肥、足道、火疗"
     return (
-        "\n【已知坏案例（来自反思系统，请避免重复犯）】\n"
-        f"{body}\n"
-        "解析用户输入时如果看到与上述坏案例相似的场景，请优先按规避建议处理（例如更谨慎地拆分姓名/偏好）。\n"
+        "\n【服务项目知识库】\n"
+        f"本系统支持的服务项目：{supported_list}\n"
+        f"本系统**不支持**的服务项目（用户提到时应主动反问）：{examples_unsupported} 等\n"
+        "重要规则：\n"
+        "1. 如果用户输入的服务项目在【支持列表】里，提取到 project 字段。\n"
+        "2. 如果用户输入的服务项目**不在**支持列表（疑似油压、火罐、艾灸、针灸等），"
+        "不要把未知词硬塞到 project 字段，而是：\n"
+        "   - project 设为'未知'\n"
+        "   - **必须**输出 unknown_service 字段，填入用户提到的原词（如'油压'）\n"
+        "   - **必须**输出 clarification_hint 字段，给一句反问话术，"
+        "格式：'我们目前提供经络、肩颈、足疗等服务，您是想约其中哪一种？'\n"
+        "3. 如果用户说'随便/都可以/都行'等模糊词，project=未知，"
+        "用 unknown_service='待选择'，clarification_hint 给出服务列表让用户挑。\n"
     )
+
+
+def _build_unknown_service_bad_case() -> Dict[str, Any]:
+    """构造一条 unknown_service 类型的"反问模式"坏案例 —— 反思系统驱动。
+
+    这条 case 由 AppointmentAgent._initial_bad_cases_for_parser 在有反思引擎时
+    自动注入 A 路径的 InputParser，B 路径因为 reflection_engine=None 拿不到。
+
+    这样 A/B 评测里：
+    - A：InputParser 拿到这条 case → prompt 里出现"反问规则" → LLM 主动识别 unknown_service
+    - B：InputParser 没拿到这条 case → LLM 把"油压"当 unknown → 走到 low_completion
+
+    让反思系统真正"在评测里发挥作用"。
+    """
+    return {
+        "case_id": "pattern_unknown_service_clarification",
+        "description": (
+            "用户提到了本店不支持的服务项目（如油压、火罐、艾灸、针灸等），"
+            "应主动反问并列出支持的服务列表，而不是静默返回 low_completion。"
+        ),
+        "category": "unknown_service_clarification",
+        "task_type": "appointment",
+        "trigger": {"input_pattern": "unsupported_service_keyword"},
+        "suggested_fix": {
+            "note": _format_service_catalog_for_prompt()
+        },
+        "source": "reflection_system_default",
+    }
 
 
 class InputParser:
@@ -98,13 +198,15 @@ class InputParser:
                 '  "gender": "技师性别（如男/女/未知）",\n'
                 '  "start_time": "预约起始时间，必须转换为标准格式YYYY-MM-DD HH:MM。如果用户说今天下午3点，转换为当前日期 15:00；如果说明天上午10点，转换为明天日期 10:00。如果只说时间没说日期，默认为今天。如果完全没有时间信息则为未知",\n'
                 '  "duration": "服务时长，统一转换为分钟数格式，如180分钟、60分钟。如果没有明确时长则为未知",\n'
-                '  "project": "服务项目（如按摩/未知）",\n'
+                '  "project": "服务项目（必须从支持列表中提取，否则设为未知）",\n'
                 '  "preference": "用户倾向（如力气大/力气小/无）",\n'
                 '  "technician_name": "指定技师姓名（如果用户明确提到技师名字，如张伟、李小美等，否则为未知）",\n'
                 '  "confirmation": "如果用户在回应技师推荐的确认问题，提取用户的回复内容（如是/好/可以/不/不要等），否则为未知",\n'
                 '  "info_complete": "根据实际情况判断：1)如果指定了技师名且不为未知，需要start_time、project、duration都不为未知；2)如果没指定技师名，需要start_time、project、duration、gender都不为未知",\n'
                 '  "unrelated": "如果用户的问题和预约无关（如问天气、聊天等），则为true，否则为false。注意：对推荐技师的确认回复（是/不等）不应标记为unrelated",\n'
-                '  "missing_info": "如果info_complete为false，请列出缺少的关键信息，如[start_time, project]等"\n'
+                '  "missing_info": "如果info_complete为false，请列出缺少的关键信息，如[start_time, project]等",\n'
+                '  "unknown_service": "如果用户提到的服务项目不在本系统支持列表里，填入用户原词（如油压、火罐、艾灸等）；否则为未知",\n'
+                '  "clarification_hint": "如果 unknown_service 非未知，必须给一句反问话术"\n'
                 "}}\n"
                 "判断逻辑：\n"
                 "1. 如果用户明确指定了技师姓名（如\"张伟技师\"、\"预约李小美\"、\"帮我约张伟\"等），请务必提取technician_name。\n"
@@ -170,7 +272,14 @@ class InputParser:
         return ai_content
     
     def parse_data(self, ai_content: str) -> Dict[str, Any]:
-        """解析AI返回的JSON数据"""
+        """解析AI返回的JSON数据
+
+        Step 2 闭环：当 LLM 识别到 unknown_service 时，把 clarification_hint 上抛，
+        让 AppointmentProcessor 走"反问"分支而非普通 missing_info。
+
+        B 路径（_enable_clarification_protocol=False）：忽略 unknown_service 字段，
+        强制走普通 missing_info 流程 —— 让 A/B Δ 真正体现"反思系统驱动的反问能力"。
+        """
         try:
             data = json.loads(ai_content)
         except json.JSONDecodeError:
@@ -184,7 +293,9 @@ class InputParser:
                 "confirmation": "未知",
                 "info_complete": False,
                 "unrelated": False,
-                "missing_info": ["所有信息"]
+                "missing_info": ["所有信息"],
+                "unknown_service": "未知",
+                "clarification_hint": "",
             }
 
         # 兜底：校验 technician_name 是否为真实姓名
@@ -206,8 +317,26 @@ class InputParser:
         # 兜底：校验 project 是否合理
         project = data.get("project")
         if project and project != "未知" and not self._looks_like_valid_project(project):
-            print(f"[WARN] project '{project}' 不合理，重置为未知")
+            # 关键：用户提到了知识库外的服务词（如油压、火罐、艾灸、淋巴排毒等）。
+            # 把"被重置的原值"存到 unknown_service 字段，让下游 handler 用相似度匹配给出降级反问。
+            print(f"[WARN] project '{project}' 不在支持列表，重置为未知（unknown_service fallback 触发）")
+            if data.get("unknown_service") in (None, "", "未知"):
+                data["unknown_service"] = project
             data["project"] = "未知"
+
+        # 兜底：unknown_service / clarification_hint 默认值
+        if "unknown_service" not in data:
+            data["unknown_service"] = "未知"
+        if "clarification_hint" not in data:
+            data["clarification_hint"] = ""
+
+        # ===== 相似度反问协议（统一对所有用户生效） =====
+        # 不再区分 A/B —— 用户提到的库外服务词统一走"相似度降级反问"路径
+        # 当 unknown_service 非未知时，强制 info_complete=False 触发反问分支
+        if data.get("unknown_service") and data["unknown_service"] != "未知":
+            info_complete = False
+            if "unknown_service" not in data.get("missing_info", []):
+                data["missing_info"] = ["unknown_service"] + (data.get("missing_info") or [])
 
         # 重新计算 info_complete
         required_fields = ["start_time", "project", "duration"]
@@ -222,13 +351,24 @@ class InputParser:
             data.get(f) and data[f] != "未知"
             for f in required_fields
         )
+        # unknown_service 存在时（A 路径）强制 info_complete=False —— 触发反问分支
+        if data.get("unknown_service") and data["unknown_service"] != "未知":
+            info_complete = False
+            # 把 unknown_service 推到 missing_info 首位，让处理器能识别
+            if "unknown_service" not in data.get("missing_info", []):
+                data["missing_info"] = ["unknown_service"] + (data.get("missing_info") or [])
+
         data["info_complete"] = info_complete
 
         if not info_complete:
-            data["missing_info"] = [
+            current_missing = [
                 f for f in required_fields
                 if not data.get(f) or data.get(f) == "未知"
             ]
+            # 合并：unknown_service 标记置顶（A 路径）
+            if data.get("unknown_service") and data["unknown_service"] != "未知":
+                current_missing = ["unknown_service"] + current_missing
+            data["missing_info"] = current_missing
         else:
             data["missing_info"] = []
 

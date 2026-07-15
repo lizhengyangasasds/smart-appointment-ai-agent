@@ -377,11 +377,58 @@ class AppointmentProcessor:
             return f"[EVAL_FAILED]reason=database_error\n{self.message_builder.create_save_failure_message()}"
     
     async def handle_incomplete_info(self, data: Dict[str, Any], appointment_history: Dict[str, Any]) -> AsyncGenerator[str, None]:
-        """处理信息不完整的情况"""
+        """处理信息不完整的情况
+
+        unknown_service 分支（库外服务词降级反问）：
+        - LLM 把 project 填了油压/火罐/艾灸等 → InputParser 重置并填入 unknown_service
+        - 本函数调 services.service_matcher 算相似度，>0.7 直接推荐"您是想约 XX 吗？"
+        - <0.7 给 top3 让用户挑 —— 比"列举全部服务"更精准
+        - embedding 挂了自动降级到字符相似度，保证主流程不被阻塞
+        """
+        # ========== 库外服务词降级反问分支 ==========
+        unknown_service = data.get("unknown_service")
+        if unknown_service and unknown_service != "未知":
+            # 把 unknown_service 持久化到 history
+            appointment_history["unknown_service"] = unknown_service
+
+            # 调相似度匹配
+            try:
+                from services.service_matcher import find_best_match, find_top_matches
+                match = find_best_match(unknown_service, similarity_threshold=0.45)
+                if match:
+                    best, score, method = match
+                    # 拿 top3 用于备选
+                    tops = find_top_matches(unknown_service, top_k=3)
+                    # 去掉 best 自身
+                    others = [(s, sc) for s, sc in tops if s != best][:2]
+                    reply = self.message_builder.create_similar_service_clarification(
+                        unknown_service=unknown_service,
+                        best_match=best,
+                        best_score=score,
+                        second_candidates=others,
+                    )
+                    yield f"[THOUGHT][预约机器人]用户提到的「{unknown_service}」不在本店服务列表，相似度匹配到「{best}」(score={score:.3f}, {method})，降级推荐"
+                    yield f"[REPLY][预约机器人]{reply}"
+                    return
+            except Exception as e:
+                print(f"[Appointment] service_matcher 调用失败，降级到 LLM hint: {e}")
+
+            # 相似度匹配失败 / 无高分结果：用 LLM hint 或模板兜底
+            clarification_hint = data.get("clarification_hint") or ""
+            reply = self.message_builder.create_unknown_service_clarification(
+                unknown_service=unknown_service,
+                clarification_hint=clarification_hint,
+            )
+            appointment_history["last_clarification_hint"] = clarification_hint
+            yield f"[THOUGHT][预约机器人]用户提到的「{unknown_service}」不在本店服务列表里，主动反问引导选择"
+            yield f"[REPLY][预约机器人]{reply}"
+            return
+
+        # ========== 原逻辑：处理缺失信息 ==========
         # 确定缺失的信息
         missing = []
         technician_name = appointment_history.get("technician_name")
-        
+
         # 基本必需信息
         if not appointment_history.get("start_time") or appointment_history.get("start_time") == "未知":
             missing.append("start_time")
@@ -389,12 +436,12 @@ class AppointmentProcessor:
             missing.append("project")
         if not appointment_history.get("duration") or appointment_history.get("duration") == "未知":
             missing.append("duration")
-        
+
         # 如果没有指定技师名，则需要性别
         if not technician_name or technician_name == "未知":
             if not appointment_history.get("gender") or appointment_history.get("gender") == "未知":
                 missing.append("gender")
-        
+
         reply = self.message_builder.create_missing_info_questions(missing)
         yield f"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：{', '.join(missing)}，我需要询问用户补充这些信息"
         yield f"[REPLY][预约机器人]{reply}"
