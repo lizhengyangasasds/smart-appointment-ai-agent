@@ -4,6 +4,7 @@
 负责协调整个预约流程
 """
 
+import logging
 import os
 import json
 import asyncio
@@ -16,6 +17,9 @@ from .appointment_database import AppointmentDatabase
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.tools import BaseTool
 from langchain_core.prompts import ChatPromptTemplate
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class WeatherMCPTool(BaseTool):
@@ -231,7 +235,7 @@ class AppointmentProcessor:
                         yield result
                     return
                 except Exception as e:
-                    print(f"consultant_fallback_callback 失败: {e}")
+                    logger.warning(f"consultant_fallback_callback 失败: {e}")
                     yield f"[ERROR]转接咨询时发生错误: {str(e)}\n"
                     # 不立即兜底到归类机器人，下面继续走归类兜底
 
@@ -366,7 +370,7 @@ class AppointmentProcessor:
                     body = f"\n机器人：已为您预约技师：{tech['name']}，性别：{tech['gender']}。预约成功！\n{agent_output}\n"
                     return f"[EVAL_OK]\n{body}"
                 except Exception as e:
-                    print(f"Agent调用失败: {e}")
+                    logger.warning(f"Agent调用失败: {e}")
                     return f"[EVAL_OK]\n{self.message_builder.create_appointment_success_message(tech)}"
             else:
                 return f"[EVAL_OK]\n{self.message_builder.create_appointment_success_message(tech)}"
@@ -411,7 +415,7 @@ class AppointmentProcessor:
                     yield f"[REPLY][预约机器人]{reply}"
                     return
             except Exception as e:
-                print(f"[Appointment] service_matcher 调用失败，降级到 LLM hint: {e}")
+                logger.warning(f"[Appointment] service_matcher 调用失败，降级到 LLM hint: {e}")
 
             # 相似度匹配失败 / 无高分结果：用 LLM hint 或模板兜底
             clarification_hint = data.get("clarification_hint") or ""

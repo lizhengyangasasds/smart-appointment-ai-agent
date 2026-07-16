@@ -278,7 +278,9 @@ class ReflectionAnalyzer:
                 return self._analyze_with_rules(evaluations, task_type, days)
 
         except json.JSONDecodeError as e:
-            self.logger.error(f"LLM 返回格式错误: {e}")
+            self.logger.error(
+                f"LLM 返回格式错误: {e}，原始响应前200字符: {response[:200] if response else 'None'!r}"
+            )
             return self._analyze_with_rules(evaluations, task_type, days)
         except Exception as e:
             self.logger.error(f"Agent 分析失败: {e}")
@@ -575,10 +577,14 @@ class ReflectionAnalyzer:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # 如果已经在事件循环中，创建新任务
+                # 在已有事件循环中：在子线程创建独立事件循环运行异步方法
                 import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _async_call())
+
+                async def _wrapper():
+                    return await _async_call()
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(asyncio.run, _wrapper())
                     return future.result(timeout=30)
             else:
                 return asyncio.run(_async_call())
@@ -590,23 +596,76 @@ class ReflectionAnalyzer:
         """
         分析坏case（Agent 驱动）
 
+        数据源优先级：
+        1. task_evaluations 表的成功==0 行（首要数据源，最可靠 — 鸡生蛋修复）
+        2. reflection_logs 表的 bad_cases 字段（次要数据源，作为历史补充）
+
+        修复背景：
+        旧实现只从 reflection_logs.bad_cases 读，但 reflection_logs.bad_cases
+        本身是由本方法写回去的 → 第一次跑永远是空，提取率 0%。
+        改成优先从 task_evaluations 读 → 每次跑评测都有新失败行进来。
+
         Args:
             days: 分析时间范围
 
         Returns:
             坏case分析结果
         """
-        if not self.reflection_repo:
-            return {"error": "reflection_repo not available"}
+        bad_cases: List[Dict[str, Any]] = []
 
-        bad_cases = self.reflection_repo.get_all_bad_cases(days=days)
+        # 数据源 1：task_evaluations 的失败行（最可靠）
+        if self.evaluation_repo:
+            try:
+                failed_evals = self.evaluation_repo.get_failed_evaluations(
+                    task_type="appointment", days=days, limit=50
+                )
+                for ev in failed_evals:
+                    bad_cases.append({
+                        "case_id": f"eval_{ev.get('id')}",
+                        "session_id": ev.get("session_id"),
+                        "task_type": ev.get("task_type"),
+                        "error_type": ev.get("error_type"),
+                        "error_message": ev.get("error_message"),
+                        "description": (
+                            f"[{ev.get('error_type') or 'unknown'}] "
+                            f"{ev.get('error_message') or 'no message'}"
+                        )[:200],
+                        "created_at": ev.get("created_at"),
+                        "source": "task_evaluations",
+                    })
+            except Exception as e:
+                self.logger.warning(f"从 task_evaluations 读失败行失败: {e}")
+
+        # 数据源 2：reflection_logs.bad_cases（历史补充）
+        if self.reflection_repo:
+            try:
+                historical = self.reflection_repo.get_all_bad_cases(days=days)
+                for bc in historical:
+                    if isinstance(bc, dict):
+                        bc.setdefault("source", "reflection_logs")
+                        bad_cases.append(bc)
+            except Exception as e:
+                self.logger.warning(f"从 reflection_logs 读坏case失败: {e}")
 
         if not bad_cases:
             return {
                 "total_cases": 0,
                 "cases": [],
-                "summary": "没有记录的坏case"
+                "summary": "没有记录的坏case（task_evaluations 和 reflection_logs 都为空）",
             }
+
+        # 兜底：把所有元素统一为 dict（防御历史 reflection_logs 里写过字符串的情况）
+        normalized: List[Dict[str, Any]] = []
+        for bc in bad_cases:
+            if isinstance(bc, dict):
+                normalized.append(bc)
+            else:
+                normalized.append({
+                    "description": str(bc)[:200],
+                    "category": "unknown",
+                    "source": "unstructured",
+                })
+        bad_cases = normalized
 
         # 检查是否应该使用 LLM
         should_use_llm = (
@@ -676,7 +735,9 @@ class ReflectionAnalyzer:
                 return self._analyze_bad_cases_with_rules(bad_cases, days)
 
         except json.JSONDecodeError as e:
-            self.logger.error(f"LLM 返回格式错误: {e}")
+            self.logger.error(
+                f"LLM 返回格式错误: {e}，原始响应前200字符: {response[:200] if response else 'None'!r}"
+            )
             return self._analyze_bad_cases_with_rules(bad_cases, days)
         except Exception as e:
             self.logger.error(f"Agent 坏case分析失败: {e}")

@@ -21,6 +21,28 @@ from .closed_loop_evaluator import ClosedLoopEvaluator, EvaluationResult
 from .context_provider import ReflectionContextProvider, ContextFormat
 
 
+def _normalize_to_list(value: Any) -> List[Any]:
+    """把 time_patterns 这类"可能是 dict / list / None"的字段统一归一为 list。
+
+    背景：analyzer._analyze_time_patterns() 返回 Dict[str, Any]（按 hour / weekday 分桶），
+    早期版本返回 list。两边 schema 不一致导致 engine 里 patterns = dict + list 直接抛
+    `unsupported operand type(s) for +: 'dict' and 'list'`。
+
+    归一规则：
+    - None / 空 → []
+    - list → 原样返回（浅拷贝）
+    - dict → [{k: v} for k, v in value.items()]，保留原字段名
+    - 其它 → [value]
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, dict):
+        return [{k: v} for k, v in value.items()]
+    return [value]
+
+
 class ReflectionTrigger(Enum):
     """反思触发类型"""
     POST_TASK = "post_task"           # 任务后反思
@@ -221,10 +243,12 @@ class ReflectionEngine:
         # - bad_cases 来自 bad_case_analysis["cases"]（DB 数据路径，字符串列表）或
         #   ["typical_cases"]（LLM 兜底路径，dict 列表），二者互斥。
         #   统一成字符串后写入 DB，避免 dict 直接进 JSON 报错。
+        # - time_patterns 可能是 dict（_analyze_time_patterns 返回 Dict[str, Any]）也可能是 list，
+        #   用 _normalize_to_list 统一归一（修复 list+dict TypeError）。
         _pa = pattern_analysis or {}
         patterns = (
-            _pa.get('time_patterns', [])
-            + [{"type": k, "description": f"分布: {v}"} for k, v in _pa.get('task_type_distribution', {}).items()]
+            _normalize_to_list(_pa.get('time_patterns'))
+            + [{"type": k, "description": f"分布: {v}"} for k, v in (_pa.get('task_type_distribution') or {}).items()]
         )
         _ba = bad_case_analysis or {}
         raw_bad_cases = _ba.get('cases', []) or _ba.get('typical_cases', [])
@@ -356,24 +380,30 @@ class ReflectionEngine:
             bad_case_analysis = {"total_cases": 0, "cases": [], "typical_cases": [], "summary": "超时"}
 
         # 字段提取（与 _perform_reflection 保持一致的字段映射）
-        recommendations = failed_analysis.get('recommendations', [])
+        # 兜底 None —— 历史上 analyze_failed_tasks 某些路径会返回 None（防御性）
+        recommendations = (failed_analysis or {}).get('recommendations', [])
         if not recommendations:
-            recommendations = pattern_analysis.get('insights', [])
+            recommendations = (pattern_analysis or {}).get('insights', [])
 
         # patterns 来自 pattern_analysis 的结构化统计
+        # time_patterns 可能是 dict（_analyze_time_patterns 返回的是 Dict[str, Any]），
+        # 也可能是 list（早期版本），用 _normalize_to_list 兜底避免 list+dict 报错。
         _pa = pattern_analysis or {}
         patterns = (
-            _pa.get('time_patterns', [])
-            + [{"type": k, "description": f"分布: {v}"} for k, v in _pa.get('task_type_distribution', {}).items()]
+            _normalize_to_list(_pa.get('time_patterns'))
+            + [{"type": k, "description": f"分布: {v}"} for k, v in (_pa.get('task_type_distribution') or {}).items()]
         )
 
         _ba = bad_case_analysis or {}
         raw_bad_cases = _ba.get('cases', []) or _ba.get('typical_cases', [])
         # cases（DB 路径，字符串列表）; typical_cases（LLM 路径，dict 列表）
-        bad_cases = [
-            bc.get('description', str(bc)) if isinstance(bc, dict) else str(bc)
-            for bc in raw_bad_cases
-        ]
+        # 防御性归一化：某些历史路径会混进裸字符串，统一转 dict
+        bad_cases = []
+        for bc in raw_bad_cases:
+            if isinstance(bc, dict):
+                bad_cases.append(bc.get('description') or bc.get('note') or str(bc))
+            else:
+                bad_cases.append(str(bc))
 
         # 写入 reflection_logs（供 get_insights 读取）
         findings_payload = {
@@ -397,7 +427,8 @@ class ReflectionEngine:
                 findings=findings_payload,
                 recommendations=recommendations,
                 patterns_discovered=patterns,
-                bad_cases=[bc.get('description', str(bc)) for bc in bad_cases],
+                # bad_cases 已经是字符串列表（前面 normalized），直接传
+                bad_cases=bad_cases,
             )
 
         self.logger.info(

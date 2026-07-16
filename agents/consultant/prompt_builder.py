@@ -46,18 +46,22 @@ class PromptBuilder:
         memory_context: str = "",
     ) -> str:
         """构建咨询提示词"""
+        # 转义用户输入中的大括号，防止 prompt 注入
+        safe_input = user_input.replace("{", "{{").replace("}", "}}")
         context = self._build_knowledge_context(knowledge_docs)
         parts = [self.system_prompt]
 
         if memory_context:
             parts.insert(1, f"\n【对话历史上下文】：\n{memory_context}\n")
 
-        parts.append(f"\n{context}\n用户问题：{user_input}\n\n请回答用户的问题。")
+        parts.append(f"\n{context}\n用户问题：{safe_input}\n\n请回答用户的问题。")
         return "\n".join(parts)
-    
+
     def build_classification_prompt(self, user_input: str) -> str:
         """构建分类提示词"""
-        return self.classification_prompt_template.format(user_input=user_input)
+        # 转义用户输入中的大括号，防止 prompt 注入
+        safe_input = user_input.replace("{", "{{").replace("}", "}}")
+        return self.classification_prompt_template.format(user_input=safe_input)
     
     def _build_knowledge_context(self, knowledge_docs: List[Dict[str, Any]]) -> str:
         """构建知识库上下文"""

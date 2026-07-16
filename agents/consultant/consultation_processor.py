@@ -4,10 +4,13 @@
 负责协调整个咨询流程
 """
 
+import logging
 from typing import AsyncGenerator, Dict, Any
 from .knowledge_retriever import KnowledgeRetriever
 from .consultation_classifier import ConsultationClassifier
 from .response_generator import ResponseGenerator
+
+logger = logging.getLogger(__name__)
 
 
 class ConsultationProcessor:
@@ -142,7 +145,7 @@ class ConsultationProcessor:
             self._log_behavior_record(action_data)
 
         except Exception as behavior_error:
-            print(f"记录咨询行为失败：{behavior_error}")
+            logger.warning(f"记录咨询行为失败：{behavior_error}")
 
     def _extract_user_id(self, session_id: str) -> str:
         """
@@ -188,7 +191,7 @@ class ConsultationProcessor:
         max_score = action_data.get('max_score', 0.0)
         user_id = action_data.get('user_id', 'unknown')
 
-        print(f"📝 咨询行为记录: user={user_id}, docs={doc_count}, "
+        logger.info(f"咨询行为记录: user={user_id}, docs={doc_count}, "
               f"avg_score={avg_score:.3f}, max_score={max_score:.3f}")
 
     def _clean_response_content(self, full_response: str) -> str:

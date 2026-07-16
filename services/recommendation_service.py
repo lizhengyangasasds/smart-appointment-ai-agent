@@ -165,14 +165,15 @@ class RecommendationService:
             return None
 
         try:
-            loop = asyncio.get_event_loop()
+                loop = asyncio.get_event_loop()
             if loop.is_running():
                 import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run,
-                        self._call_llm_async(prompt, temperature)
-                    )
+
+                async def _wrapper():
+                    return await self._call_llm_async(prompt, temperature)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(asyncio.run, _wrapper())
                     return future.result(timeout=30)
             else:
                 return asyncio.run(self._call_llm_async(prompt, temperature))

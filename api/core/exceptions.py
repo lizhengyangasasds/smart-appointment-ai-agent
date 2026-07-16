@@ -28,11 +28,17 @@ async def api_exception_handler(request: Request, exc: BusinessException):
 
 async def general_exception_handler(request: Request, exc: Exception):
     """通用异常处理器"""
-    import traceback
+    import re
     error_detail = f"未处理异常: {str(exc)}"
     stack_trace = traceback.format_exc()
-    logger.error(f"{error_detail}\n{stack_trace}")
-    
+    # 脱敏文件路径，防止泄露内部结构
+    safe_trace = re.sub(
+        r'(?:[A-Z]:[/\\][\w/\\.-]+|e?:[/\\][\w/\\.-]+)',
+        '<PROJECT_PATH>',
+        stack_trace
+    )
+    logger.error(f"{error_detail}\n{safe_trace}")
+
     return JSONResponse(
         status_code=500,
         content={"error": "服务器内部错误"}

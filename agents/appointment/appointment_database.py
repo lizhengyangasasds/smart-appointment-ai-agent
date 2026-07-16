@@ -5,10 +5,13 @@
 注意：现在通过Services层访问数据库，符合分层架构
 """
 
+import logging
 from typing import Dict, Any
 from datetime import datetime
 from config.time_config import time_config
 from config.constants import busy_periods_dict
+
+logger = logging.getLogger(__name__)
 
 
 class AppointmentDatabase:
@@ -39,7 +42,7 @@ class AppointmentDatabase:
                         end_time: datetime, appointment_history: Dict[str, Any], 
                         session_id: str) -> bool:
         """保存预约信息到数据库"""
-        print(f"[DEBUG] save_appointment called: tech_id={technician_id}({type(technician_id).__name__}), start={start_time}, end={end_time}")
+        logger.debug(f"[Appointment] save_appointment called: tech_id={technician_id}({type(technician_id).__name__}), start={start_time}, end={end_time}")
         try:
             # 通过Services层保存预约
             success = self.appointment_service.save_appointment(
@@ -54,7 +57,7 @@ class AppointmentDatabase:
             return success
             
         except Exception as e:
-            print(f"保存预约信息到数据库失败：{e}")
+            logger.error(f"保存预约信息到数据库失败：{e}")
             import traceback
             traceback.print_exc()
             return False
@@ -91,4 +94,4 @@ class AppointmentDatabase:
             )
             
         except Exception as behavior_error:
-            print(f"记录用户行为失败（但预约仍然成功）：{behavior_error}")
+            logger.warning(f"记录用户行为失败（但预约仍然成功）：{behavior_error}")

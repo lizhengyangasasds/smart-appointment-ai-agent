@@ -53,6 +53,8 @@ class ReflectionService:
             except Exception as e:
                 self._init_error = e
                 self._initialized = True
+                import logging
+                logging.error(f"[ReflectionService] 初始化失败，is_available 将返回 False: {e}")
 
     @property
     def agent(self):

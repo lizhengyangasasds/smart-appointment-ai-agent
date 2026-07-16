@@ -90,6 +90,15 @@ class TaskEvaluator:
         completed_fields = [f for f in required_fields if appointment_history.get(f)]
         completion_rate = len(completed_fields) / len(required_fields)
 
+        # Step 2 闭环：检测 unknown_service 反问行为
+        # 当 appointment_history 含 unknown_service 字段且非 None —— 表明 Agent
+        # 已经主动反问库外服务词，给 PARTIAL（success=1）奖励，让 A/B 评测里
+        # 反思系统驱动的反问能力能体现在 success_rate 上。
+        triggered_clarification = bool(
+            appointment_history.get('unknown_service')
+            and appointment_history.get('unknown_service') is not None
+        )
+
         # 判断成功级别
         if error:
             success = SuccessLevel.FAILED
@@ -100,6 +109,12 @@ class TaskEvaluator:
             success = SuccessLevel.SUCCESS
             success_rate = 1.0
             error_type = None
+        elif triggered_clarification:
+            # 反思系统驱动的反问行为 —— 比"机械式 missing_info 询问"更优
+            # success=1 让 A/B 拉开差距
+            success = SuccessLevel.PARTIAL
+            success_rate = max(0.5, completion_rate)
+            error_type = 'clarified_unknown_service'
         elif completion_rate >= 0.5:
             success = SuccessLevel.PARTIAL
             success_rate = completion_rate

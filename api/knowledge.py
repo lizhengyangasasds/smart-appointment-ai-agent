@@ -71,7 +71,9 @@ async def get_knowledge(knowledge_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取知识条目失败: {str(e)}")
+        import logging
+        logging.getLogger(__name__).error(f"获取知识条目失败: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="获取知识条目失败，请稍后重试")
 
 
 @router.post("/")
@@ -105,7 +107,9 @@ async def add_knowledge(item: KnowledgeItem):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"添加知识条目失败: {str(e)}")
+        import logging
+        logging.getLogger(__name__).error(f"添加知识条目失败: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="添加知识条目失败，请稍后重试")
 
 
 @router.put("/{knowledge_id}")

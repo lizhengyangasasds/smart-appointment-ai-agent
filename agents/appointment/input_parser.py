@@ -282,7 +282,12 @@ class InputParser:
         """
         try:
             data = json.loads(ai_content)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            # 记录原始内容前200字符用于排查 LLM 输出格式问题
+            logger.error(
+                f"[InputParser] JSON 解析失败，原始内容前200字符: {ai_content[:200]!r}，"
+                f"错误: {e}"
+            )
             return {
                 "gender": "未知",
                 "start_time": "未知",
@@ -302,7 +307,7 @@ class InputParser:
         # 避免 LLM 把服务项目名（如"按摩服务"）或描述性短语误识别为技师名
         tech_name = data.get("technician_name")
         if tech_name and tech_name != "未知" and not self._looks_like_real_name(tech_name):
-            print(f"[WARN] technician_name '{tech_name}' 不符合真实姓名规则，重置为未知")
+            logger.warning(f"[WARN] technician_name '{tech_name}' 不符合真实姓名规则，重置为未知")
             # 如果误识别为技师名的内容里包含服务项目关键词，迁移到 project 字段
             project_keywords = ["按摩", "推拿", "足疗", "spa", "理疗", "养生", "经络", "刮痧", "拔罐"]
             if any(kw in tech_name for kw in project_keywords):
@@ -319,7 +324,7 @@ class InputParser:
         if project and project != "未知" and not self._looks_like_valid_project(project):
             # 关键：用户提到了知识库外的服务词（如油压、火罐、艾灸、淋巴排毒等）。
             # 把"被重置的原值"存到 unknown_service 字段，让下游 handler 用相似度匹配给出降级反问。
-            print(f"[WARN] project '{project}' 不在支持列表，重置为未知（unknown_service fallback 触发）")
+            logger.warning(f"[WARN] project '{project}' 不在支持列表，重置为未知（unknown_service fallback 触发）")
             if data.get("unknown_service") in (None, "", "未知"):
                 data["unknown_service"] = project
             data["project"] = "未知"

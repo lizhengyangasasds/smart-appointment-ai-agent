@@ -10,6 +10,7 @@
 6. 反思闭环：对话完成后自动触发反思，注入反思引擎到各 Agent
 """
 
+import logging
 import uuid
 import re
 import asyncio
@@ -27,6 +28,9 @@ from db.repositories.memory_repository import MemoryRepository
 from services.memory_manager import MemoryManager
 from services.conversation_memory_service import TokenCounter
 from services.reflection_service import get_reflection_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================
@@ -228,7 +232,7 @@ class _MemoryAwareChatSession:
                 )
         except Exception as e:
             # 反思失败静默吞掉，不影响用户
-            print(f"[Reflection] 反思触发失败: {e}")
+            logging.warning(f"[Reflection] 反思触发失败: {e}")
 
     async def _stream_response(
         self,
@@ -257,15 +261,21 @@ class _MemoryAwareChatSession:
         if self.memory_manager.needs_compression():
             try:
                 self.memory_manager.compress(self._summary_llm)
-                print(f"[Memory] session={self.session_id} 上下文压缩完成")
+                logger.debug(f"[Memory] session={self.session_id} 上下文压缩完成")
             except Exception as e:
-                print(f"[Memory] 压缩失败: {e}")
+                logger.warning(f"[Memory] 压缩失败: {e}")
 
         # --- 对话流处理 ---
         self._in_conversation_flow = True
         collected_response = []
 
-        async for token in self._task_agent.classify_task_stream(user_input):
+        # 修复：把记忆上下文（对话摘要+用户画像）传下去，
+        # 让 InputParser 能看到用户偏好（如 preferred_technician）和早期对话摘要，
+        # 避免每次都重新问用户已有信息。
+        memory_ctx = self.memory_manager.get_full_context(
+            user_profile=True, include_summary=True
+        )
+        async for token in self._task_agent.classify_task_stream(user_input, memory_context=memory_ctx):
             collected_response.append(token)
             yield token
 

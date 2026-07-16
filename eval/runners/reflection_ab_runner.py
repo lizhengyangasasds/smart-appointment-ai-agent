@@ -493,18 +493,26 @@ def _est_tokens(text: str) -> int:
 
 
 def _reflection_logs_stats(before_a_ts: int, before_b_ts: int) -> Dict[str, Any]:
-    """A/B 跑完后，看 reflection_logs 实际增加了多少；以及 bad_cases 非空率。"""
+    """A/B 跑完后，看 reflection_logs 实际增加了多少；以及 bad_cases 非空率。
+
+    session_id 形如 eval-ab-<case_id>_A-<timestamp>，LIKE pattern 需要转义
+    下划线（SQLAlchemy 中 _ 匹配任意单字符，会误匹配 eval-ab-XX 之类）。
+    """
+    # 直接用 ESCAPE 子句，避免 _ 把 case_id 里的字符误匹配
+    a_pattern_str = "eval-ab-%$_A-%"
+    b_pattern_str = "eval-ab-%$_B-%"
+
     with get_db_session() as s:
         rows_a = (
             s.query(ReflectionLog)
-            .filter(ReflectionLog.session_id.like("eval-ab-%_A-%"))
+            .filter(ReflectionLog.session_id.like(a_pattern_str, escape="$"))
             .order_by(desc(ReflectionLog.created_at))
             .limit(10)
             .all()
         )
         rows_b = (
             s.query(ReflectionLog)
-            .filter(ReflectionLog.session_id.like("eval-ab-%_B-%"))
+            .filter(ReflectionLog.session_id.like(b_pattern_str, escape="$"))
             .order_by(desc(ReflectionLog.created_at))
             .limit(10)
             .all()
@@ -760,6 +768,27 @@ async def main(cases: List[Dict[str, Any]], out_dir: Path,
 
     summary = _summarize(results)
     reflection_stats = _reflection_logs_stats(0, 0)
+
+    # ========== Phase 2 后：聚合分析 → 把刚跑的 case 写入 reflection_logs ==========
+    # A-variant 的每个 case 已经在 AppointmentAgent._record_eval 里落了 reflection_log（每条 1 行），
+    # 但那种是 per-task 粒度（post_task 类型）。这里再触发一次 analyze_and_record 把 N 条任务
+    # 聚合为结构化 patterns / bad_cases / recommendations，便于 get_insights() 后续注入 prompt。
+    # 这正是 l3_ab_final_v2 报告里 bad_cases 提取率 = 0% 的根因：聚合这一步从未执行。
+    if engine is not None:
+        print("\n" + "-" * 72)
+        print("Phase 2 后: 触发 engine.analyze_and_record() 聚合写入反思...")
+        try:
+            agg = await engine.analyze_and_record(days=3)
+            print(f"  聚合写入: reflection_id={agg.get('reflection_id')} "
+                  f"patterns={len(agg.get('patterns', []))} "
+                  f"bad_cases={len(agg.get('bad_cases', []))} "
+                  f"recommendations={len(agg.get('recommendations', []))}")
+            # 重新查 stats —— 让最后打印的指标反映聚合后的真实状态
+            reflection_stats = _reflection_logs_stats(0, 0)
+        except Exception as ex:
+            import traceback
+            print(f"  [WARN] analyze_and_record 失败: {ex}")
+            traceback.print_exc()
 
     print("\n" + "=" * 72)
     print("汇总")
