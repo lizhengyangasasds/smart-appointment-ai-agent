@@ -1,0 +1,265 @@
+[
+  {
+    "id": "mem_ext_preference_basic",
+    "scenario": "提取：技师偏好（单条）",
+    "input": "我想约张伟师傅",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "张伟"}
+    ]
+  },
+  {
+    "id": "mem_ext_preference_alt_suffix",
+    "scenario": "提取：技师（技师后缀变体）",
+    "input": "帮我约李娜按摩师",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "李娜"}
+    ]
+  },
+  {
+    "id": "mem_ext_preference_verb_form",
+    "scenario": "提取：技师（动词+姓）",
+    "input": "找王芳给我做",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "王芳"}
+    ]
+  },
+  {
+    "id": "mem_ext_time_morning",
+    "scenario": "提取：时间偏好-上午",
+    "input": "我喜欢上午来",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "time_preference", "value": "morning"}
+    ]
+  },
+  {
+    "id": "mem_ext_time_afternoon",
+    "scenario": "提取：时间偏好-下午",
+    "input": "我喜欢下午来",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "time_preference", "value": "afternoon"}
+    ]
+  },
+  {
+    "id": "mem_ext_time_evening",
+    "scenario": "提取：时间偏好-晚上",
+    "input": "晚上有空",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "time_preference", "value": "evening"}
+    ]
+  },
+  {
+    "id": "mem_ext_time_weekend",
+    "scenario": "提取：时间偏好-周末",
+    "input": "周末比较方便",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "time_preference", "value": "weekend"}
+    ]
+  },
+  {
+    "id": "mem_ext_time_workday",
+    "scenario": "提取：时间偏好-工作日",
+    "input": "只有工作日有时间",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "time_preference", "value": "weekday"}
+    ]
+  },
+  {
+    "id": "mem_ext_duration_min",
+    "scenario": "提取：时长-分钟",
+    "input": "我要按60分钟",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "duration_preference", "value": "60分钟"}
+    ]
+  },
+  {
+    "id": "mem_ext_duration_hour",
+    "scenario": "提取：时长（小时单位）",
+    "input": "我要按2个小时",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "duration_preference", "value": "120分钟"}
+    ]
+  },
+  {
+    "id": "mem_ext_duration_min_alias",
+    "scenario": "提取：时长-min 英文别名",
+    "input": "我约 90 min",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "duration_preference", "value": "90分钟"}
+    ]
+  },
+  {
+    "id": "mem_ext_project_zulin",
+    "scenario": "提取：项目-足疗",
+    "input": "做个足疗吧",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "project_preference", "value": "足疗"}
+    ]
+  },
+  {
+    "id": "mem_ext_project_jingjing",
+    "scenario": "提取：项目-肩颈",
+    "input": "肩颈有点酸",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "project_preference", "value": "肩颈"}
+    ]
+  },
+  {
+    "id": "mem_ext_project_spa",
+    "scenario": "提取：项目-SPA",
+    "input": "想体验一下SPA",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "project_preference", "value": "SPA"}
+    ]
+  },
+  {
+    "id": "mem_ext_project_guasha",
+    "scenario": "提取：项目-刮痧",
+    "input": "刮个痧",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "project_preference", "value": "刮痧"}
+    ]
+  },
+  {
+    "id": "mem_ext_project_baguan",
+    "scenario": "提取：项目-拔罐",
+    "input": "拔罐一下",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "project_preference", "value": "拔罐"}
+    ]
+  },
+  {
+    "id": "mem_ext_project_quanshen",
+    "scenario": "提取：项目-全身",
+    "input": "全身推拿",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "project_preference", "value": "全身"},
+      {"memory_type": "preference", "key": "project_preference", "value": "推拿"}
+    ]
+  },
+  {
+    "id": "mem_ext_gender_male",
+    "scenario": "提取：性别-男",
+    "input": "要男技师",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "technician_gender", "value": "male"}
+    ]
+  },
+  {
+    "id": "mem_ext_gender_female_nv",
+    "scenario": "提取：性别-女",
+    "input": "我是女的",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "technician_gender", "value": "female"}
+    ]
+  },
+  {
+    "id": "mem_ext_gender_female_nvxing",
+    "scenario": "提取：性别-女性别名",
+    "input": "要女性按摩师",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "technician_gender", "value": "female"}
+    ]
+  },
+  {
+    "id": "mem_ext_strength_heavy",
+    "scenario": "提取：力度-重（力气大）",
+    "input": "手劲大一点",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "strength_preference", "value": "heavy"}
+    ]
+  },
+  {
+    "id": "mem_ext_strength_heavy_alt",
+    "scenario": "提取：力度-重（力度大）",
+    "input": "力度大一些",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "strength_preference", "value": "heavy"}
+    ]
+  },
+  {
+    "id": "mem_ext_strength_light",
+    "scenario": "提取：力度-轻（轻柔）",
+    "input": "希望轻柔一些",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "strength_preference", "value": "light"}
+    ]
+  },
+  {
+    "id": "mem_ext_avoid_single",
+    "scenario": "提取：规避技师（带否定词）",
+    "input": "不要李师傅",
+    "expected_preferences": [
+      {"memory_type": "constraint", "key": "avoid_technician", "value": "李"}
+    ]
+  },
+  {
+    "id": "mem_ext_avoid_alt_phrase",
+    "scenario": "提取：规避（避开）",
+    "input": "避开王芳",
+    "expected_preferences": [
+      {"memory_type": "constraint", "key": "avoid_technician", "value": "王芳"}
+    ]
+  },
+  {
+    "id": "mem_ext_combo",
+    "scenario": "提取：组合（一句话多偏好）",
+    "input": "我是女生，下午帮我约张伟师傅做60分钟足疗",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "张伟"},
+      {"memory_type": "preference", "key": "time_preference", "value": "afternoon"},
+      {"memory_type": "preference", "key": "duration_preference", "value": "60分钟"},
+      {"memory_type": "preference", "key": "project_preference", "value": "足疗"},
+      {"memory_type": "preference", "key": "technician_gender", "value": "female"}
+    ]
+  },
+  {
+    "id": "mem_ext_combo_with_avoid",
+    "scenario": "提取：组合 + 规避技师",
+    "input": "不要李师傅，我想约张伟师傅，力度轻一点",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "张伟"},
+      {"memory_type": "preference", "key": "strength_preference", "value": "light"},
+      {"memory_type": "constraint", "key": "avoid_technician", "value": "李"}
+    ]
+  },
+  {
+    "id": "mem_ext_combo_full",
+    "scenario": "提取：组合 - 6 字段全出现",
+    "input": "我是男的，上午找李娜女技师，给我做90分钟足疗，力度轻一些",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "李娜"},
+      {"memory_type": "preference", "key": "time_preference", "value": "morning"},
+      {"memory_type": "preference", "key": "duration_preference", "value": "90分钟"},
+      {"memory_type": "preference", "key": "project_preference", "value": "足疗"},
+      {"memory_type": "preference", "key": "technician_gender", "value": "male"},
+      {"memory_type": "preference", "key": "strength_preference", "value": "light"}
+    ]
+  },
+  {
+    "id": "mem_ext_negative_no_match_greet",
+    "scenario": "提取：无偏好（纯问候）",
+    "input": "你好",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_negative_no_match_ack",
+    "scenario": "提取：无偏好（短确认）",
+    "input": "好的",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_negative_no_match_q",
+    "scenario": "提取：无偏好（疑问句）",
+    "input": "你们几点关门？",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_multi_tech_avoid",
+    "scenario": "提取：规避 + 偏好在同一句",
+    "input": "不要李师傅，我想约张伟师傅",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "张伟"},
+      {"memory_type": "constraint", "key": "avoid_technician", "value": "李"}
+    ]
+  }
+]

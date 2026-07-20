@@ -1,0 +1,107 @@
+[
+  {
+    "id": "mem_ext_adversarial_false_tech_doctor",
+    "scenario": "对抗：'李医生' 不是按摩技师（不应误提取）",
+    "input": "我昨天预约了李医生看感冒",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_false_tech_teacher",
+    "scenario": "对抗：'王老师' 不是按摩技师",
+    "input": "找王老师问个事情",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_false_tech_plumber",
+    "scenario": "对抗：'张师傅修空调'（语境非按摩）",
+    "input": "找张师傅修空调，明天上午能到吗",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "time_preference", "value": "morning"}
+    ]
+  },
+  {
+    "id": "mem_ext_adversarial_false_tech_greeting",
+    "scenario": "对抗：'张三朋友' 不是技师",
+    "input": "我朋友张三来接我",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_false_tech_friend_only",
+    "scenario": "对抗：'李四' 单纯作为朋友提到（无动词/无后缀）",
+    "input": "李四是老朋友了",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_false_tech_counting",
+    "scenario": "对抗：'三个老师'（数字+老师）",
+    "input": "我们公司请了三个老师",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_false_avoid_negative_fruit",
+    "scenario": "对抗：'不要' 修饰食物（不应误判为技师规避）",
+    "input": "我不要苹果",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_false_strength_idiom",
+    "scenario": "对抗：'力气大了点' 成语式（不是力度偏好）",
+    "input": "今天干得不错，力气大了点",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_real_avoid_in_complex",
+    "scenario": "对抗复合：真实避免 + 时间（验证 precision/recall 双高）",
+    "input": "不要李师傅，我上午来，别给我找男技师，手劲轻点",
+    "expected_preferences": [
+      {"memory_type": "constraint", "key": "avoid_technician", "value": "李"},
+      {"memory_type": "preference", "key": "time_preference", "value": "morning"},
+      {"memory_type": "preference", "key": "technician_gender", "value": "male"},
+      {"memory_type": "preference", "key": "strength_preference", "value": "light"}
+    ]
+  },
+  {
+    "id": "mem_ext_adversarial_multi_tech_distinct",
+    "scenario": "对抗：2 个不同技师（应都提取出来，验证字典合并）",
+    "input": "上次张伟按得好，这次想换李娜试试",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "张伟"},
+      {"memory_type": "preference", "key": "preferred_technician", "value": "李娜"}
+    ]
+  },
+  {
+    "id": "mem_ext_adversarial_gender_word_alone",
+    "scenario": "对抗：'女' 作为其他含义（女朋友）",
+    "input": "我女朋友下班了",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_time_idiom",
+    "scenario": "对抗：'晚上做梦'（早晨/晚上作为隐喻）",
+    "input": "我想起晚上做的那个梦",
+    "expected_preferences": []
+  },
+  {
+    "id": "mem_ext_adversarial_double_tricky",
+    "scenario": "对抗：'张师傅不能来'（技师确实被提及，且含否定词，不该误判为 avoid）",
+    "input": "张师傅下午不能来，对吧？",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "preferred_technician", "value": "张伟"},
+      {"memory_type": "preference", "key": "time_preference", "value": "afternoon"}
+    ]
+  },
+  {
+    "id": "mem_ext_adversarial_kids_spa",
+    "scenario": "对抗：'给小朋友做 SPA' 不是 user 自己偏好",
+    "input": "给小朋友做个 SPA 注意保暖",
+    "expected_preferences": [
+      {"memory_type": "preference", "key": "project_preference", "value": "SPA"}
+    ]
+  },
+  {
+    "id": "mem_ext_adversarial_polite_decline",
+    "scenario": "对抗：'不用' 礼貌回绝而非真正偏好",
+    "input": "不用给我安排了",
+    "expected_preferences": []
+  }
+]

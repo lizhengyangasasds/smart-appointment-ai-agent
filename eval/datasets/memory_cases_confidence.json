@@ -1,0 +1,64 @@
+[
+  {
+    "id": "mem_conf_seed_basic_overwrite",
+    "scenario": "置信度：同 key 高 confidence 覆盖低 confidence（验证排序）",
+    "input": "帮我约按摩",
+    "seed_preferences": [
+      {"key": "preferred_technician", "value": "张伟", "confidence": 1},
+      {"key": "preferred_technician", "value": "李四", "confidence": 5},
+      {"key": "time_preference", "value": "afternoon", "confidence": 3}
+    ],
+    "expected_preferences": {
+      "preferred_technician": "李四",
+      "time_preference": "afternoon"
+    }
+  },
+  {
+    "id": "mem_conf_seed_gender_reorder",
+    "scenario": "置信度：技师性别偏好反转（male=1 → female=4）",
+    "input": "帮我约女技师",
+    "seed_preferences": [
+      {"key": "technician_gender", "value": "male", "confidence": 1},
+      {"key": "technician_gender", "value": "female", "confidence": 4}
+    ],
+    "expected_preferences": {
+      "technician_gender": "female"
+    }
+  },
+  {
+    "id": "mem_conf_seed_strength_dominate",
+    "scenario": "置信度：高 confidence 力度应被采用",
+    "input": "力度轻一些",
+    "seed_preferences": [
+      {"key": "strength_preference", "value": "heavy", "confidence": 1},
+      {"key": "strength_preference", "value": "light", "confidence": 6}
+    ],
+    "expected_preferences": {
+      "strength_preference": "light"
+    }
+  },
+  {
+    "id": "mem_conf_seed_multi_dim",
+    "scenario": "置信度：多维度同时存在（4 个不同 key 互不冲突）",
+    "input": "我想要全套熟悉服务",
+    "seed_preferences": [
+      {"key": "preferred_technician", "value": "王芳", "confidence": 4},
+      {"key": "time_preference", "value": "morning", "confidence": 5},
+      {"key": "duration_preference", "value": "90分钟", "confidence": 3},
+      {"key": "project_preference", "value": "足疗", "confidence": 2}
+    ],
+    "expected_preferences": {
+      "preferred_technician": "王芳",
+      "time_preference": "morning",
+      "duration_preference": "90分钟",
+      "project_preference": "足疗"
+    }
+  },
+  {
+    "id": "mem_conf_seed_no_signal",
+    "scenario": "置信度：无 seed_preferences（应该返回空）",
+    "input": "你好",
+    "seed_preferences": [],
+    "expected_preferences": {}
+  }
+]
