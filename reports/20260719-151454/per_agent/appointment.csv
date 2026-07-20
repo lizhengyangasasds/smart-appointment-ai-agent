@@ -1,0 +1,222 @@
+case_id,scenario,input,expected,got,success,latency_s,turns,error,prompt_tokens,completion_tokens,raw_response,expected_should_reflect,got_should_reflect,reflection_log_written,bad_cases_non_empty
+appt_001,完整预约（明天下午2点，女技师，60分钟）,我想预约明天下午2点的按摩，女技师，60分钟,"{""success"": 2, ""min_gender"": ""女""}","{""evaluation"": {""id"": 353, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 3.26500000001397, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-20 14:00"", ""duration"": ""60"", ""project"": ""按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,3.281,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'女'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：赵敏
+[THOUGHT][预约机器人] 找到空闲技师：孙丽
+[THOUGHT][预约机器人] 找到空闲技师：吴婷
+[THOUGHT][预约机器人] 找到空闲技师：何静
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：赵敏，性别：女。预约成功！
+预约成功！您的预约已确认，技师赵敏（女）将为您服务。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适的状态。期待与您的见面，祝您一天愉快！
+",False,False,False,False
+appt_002,完整预约（今天晚上8点，男技师，90分钟）,今晚8点帮我约个男技师的全身推拿，90分钟,"{""success"": 2, ""min_gender"": ""男""}","{""evaluation"": {""id"": 354, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 2.8589999999967404, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""男"", ""start_time"": ""2026-07-19 20:00"", ""duration"": ""90"", ""project"": ""全身推拿"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,2.875,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'男'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：王强
+[THOUGHT][预约机器人] 找到空闲技师：刘洋
+[THOUGHT][预约机器人] 找到空闲技师：周杰
+[THOUGHT][预约机器人] 找到空闲技师：郑斌
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：王强，性别：男。预约成功！
+预约成功！您的预约已安排给王强技师（男）。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适。期待您的到来，祝您有一个愉快的体验！
+",False,False,False,False
+appt_003,完整预约（指定技师张伟，缺时长）,帮我预约张伟技师，今天下午3点的肩颈按摩,"{""success"": 1, ""technician_name"": ""张伟""}","{""evaluation"": {""id"": 355, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.5, ""completion_time"": 1.3440000000118744, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-19 15:00"", ""duration"": null, ""project"": ""肩颈按摩"", ""preference"": null, ""technician"": null, ""technician_name"": ""张伟"", ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""technician_name"": true}}",1,1.36,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：duration，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要多长时间的服务？
+",False,False,False,False
+appt_004,完整预约（指定技师李娜，缺性别）,我想约李娜，明天下午4点，60分钟足疗,"{""success"": 1, ""technician_name"": ""李娜""}","{""evaluation"": {""id"": 356, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 4.532000000006519, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-20 16:00"", ""duration"": ""60"", ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": ""李娜"", ""unknown_service"": null, ""last_clarification_hint"": null, ""recommended_technician"": {""id"": 9, ""name"": ""郑斌"", ""gender"": ""男"", ""strength"": ""力气大，适合喜欢重手法的客户，善于肌肉放松""}, ""original_technician"": {""id"": 3, ""name"": ""李娜"", ""gender"": ""女"", ""strength"": ""手法细腻，擅长舒缓放松，适合压力大、睡眠差人群""}, ""awaiting_confirmation"": true}}, ""matches"": {""success"": true, ""technician_name"": true}}",1,4.532,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 用户指定了技师：李娜，正在查询该技师信息...
+[THOUGHT][预约机器人] 找到技师：李娜，正在检查档期...
+[THOUGHT][预约机器人] 李娜技师在指定时间不空闲
+[THOUGHT][预约机器人] 正在根据李娜的专长查找相似技师...
+[THOUGHT][预约机器人] 根据专长相似度排序，准备检查可用性...
+[THOUGHT][预约机器人] 找到相似且可用的技师：郑斌
+[REPLY][预约机器人]
+机器人：李娜技师今日16:00时段已满，为您推荐郑斌技师，擅长重手法放松，专业可靠，该时段有空。是否预约他为您服务？
+",False,False,False,False
+appt_005,完整预约（只指定时间项目）,明天上午10点的肩颈推拿,"{""success"": 1}","{""evaluation"": {""id"": 357, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.5, ""completion_time"": 1.2030000000086147, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-20 10:00"", ""duration"": null, ""project"": ""肩颈推拿"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.219,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：duration, gender，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要多长时间的服务？ 您希望选择男技师还是女技师呢？
+",False,False,False,False
+appt_006,性别偏好明确（女）,请帮我约一位女技师，今天下午2点，足疗60分钟,"{""success"": 2, ""min_gender"": ""女""}","{""evaluation"": {""id"": 358, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 1.452999999979511, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-19 14:00"", ""duration"": ""60"", ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null, ""confirmed_technician"": {""id"": 3, ""name"": ""李娜"", ""gender"": ""女"", ""strength"": ""手法细腻，擅长舒缓放松，适合压力大、睡眠差人群""}, ""awaiting_confirmation"": true}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,1.469,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'女'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 没有找到空闲技师
+[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'女'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 没有找到空闲技师
+[THOUGHT][预约机器人] 搜索 fallback 时段 -60min (13:00)...
+[THOUGHT][预约机器人] fallback 找到 李娜 在 13:00 有空
+[THOUGHT][预约机器人] 搜索 fallback 时段 -30min (13:30)...
+[THOUGHT][预约机器人] 搜索 fallback 时段 +30min (14:30)...",False,False,False,False
+appt_007,性别偏好明确（男）,想找个男技师，明天上午11点全身按摩60分钟,"{""success"": 2, ""min_gender"": ""男""}","{""evaluation"": {""id"": 359, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 3.062000000005355, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""男"", ""start_time"": ""2026-07-20 11:00"", ""duration"": ""60"", ""project"": ""按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,3.078,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'男'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：王强
+[THOUGHT][预约机器人] 找到空闲技师：刘洋
+[THOUGHT][预约机器人] 找到空闲技师：周杰
+[THOUGHT][预约机器人] 找到空闲技师：郑斌
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：王强，性别：男。预约成功！
+预约成功！您的预约已安排在技师王强（男）为您服务。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适的状态。期待您的到来，祝您有一个愉快的体验！
+",False,False,False,False
+appt_008,时间模糊（只说今天）,今天想做个足疗，60分钟,"{""success"": 1}","{""evaluation"": {""id"": 360, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.375, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-19 15:12"", ""duration"": ""60"", ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.391,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：gender，我需要询问用户补充这些信息[REPLY][预约机器人]
+您希望选择男技师还是女技师呢？
+",False,False,False,False
+appt_009,时间模糊（只说晚上）,晚上想做个肩颈按摩，女技师,"{""success"": 1}","{""evaluation"": {""id"": 361, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.375, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-19 00:00"", ""duration"": null, ""project"": ""肩颈按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.39,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：duration，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要多长时间的服务？
+",False,False,False,False
+appt_010,描述当作技师（手劲大的女技师）,想约个手劲大的女技师，明天上午10点，60分钟,"{""success"": 1, ""min_gender"": ""女""}","{""evaluation"": {""id"": 362, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.4530000000086147, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-20 10:00"", ""duration"": ""60"", ""project"": null, ""preference"": ""手劲大"", ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,1.453,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：project，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要什么服务项目？比如按摩？
+",False,False,False,False
+appt_011,描述当作技师（手法细腻）,想约个手法细腻的技师，今天下午3点，60分钟肩颈,"{""success"": 1}","{""evaluation"": {""id"": 363, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.5, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-19 15:00"", ""duration"": ""60"", ""project"": ""肩颈"", ""preference"": ""手法细腻"", ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.5,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：gender，我需要询问用户补充这些信息[REPLY][预约机器人]
+您希望选择男技师还是女技师呢？
+",False,False,False,False
+appt_012,无关请求（闲聊）,今天北京天气怎么样,"{""success"": 0, ""unrelated"": true}","{""evaluation"": {""id"": 364, ""task_type"": ""appointment"", ""success"": 0, ""success_rate"": 0.0, ""completion_time"": 1.1559999999881256, ""turns_count"": 0, ""error_type"": ""low_completion"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": null, ""duration"": null, ""project"": null, ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""unrelated"": true}}",1,1.156,1,,0,0,"[REPLY][预约机器人]抱歉，我无法处理这个问题。我只能帮您处理推拿服务相关的预约。请问您需要预约服务吗？
+",False,False,False,False
+appt_013,完整预约（足疗明天上午9点，男，45分钟）,明天上午9点，足疗45分钟，男,"{""success"": 2, ""min_gender"": ""男""}","{""evaluation"": {""id"": 365, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 2.9689999999827705, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""男"", ""start_time"": ""2026-07-20 09:00"", ""duration"": ""45"", ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,2.984,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'男'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：张伟
+[THOUGHT][预约机器人] 找到空闲技师：王强
+[THOUGHT][预约机器人] 找到空闲技师：刘洋
+[THOUGHT][预约机器人] 找到空闲技师：周杰
+[THOUGHT][预约机器人] 找到空闲技师：郑斌
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：张伟，性别：男。预约成功！
+预约成功！技师张伟已为您安排好服务，期待您的到来。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适的状态享受服务。祝您一天愉快！
+",False,False,False,False
+appt_014,完整预约（经络今天下午5点，女）,今天下午5点帮我约经络按摩60分钟，女技师,"{""success"": 2, ""min_gender"": ""女""}","{""evaluation"": {""id"": 366, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 2.8589999999967404, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-19 17:00"", ""duration"": ""60"", ""project"": ""经络按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,2.875,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'女'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：李娜
+[THOUGHT][预约机器人] 找到空闲技师：赵敏
+[THOUGHT][预约机器人] 找到空闲技师：孙丽
+[THOUGHT][预约机器人] 找到空闲技师：吴婷
+[THOUGHT][预约机器人] 找到空闲技师：何静
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：李娜，性别：女。预约成功！
+预约成功！您的预约已确认，技师李娜（女）将为您服务。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适的状态。期待与您的见面，祝您今天愉快！
+",False,False,False,False
+appt_015,完整预约（推拿明天上午10点30分，男）,明早10点半，帮我约推拿60分钟，男技师,"{""success"": 2, ""min_gender"": ""男""}","{""evaluation"": {""id"": 367, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 2.75, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""男"", ""start_time"": ""2026-07-20 10:30"", ""duration"": ""60"", ""project"": ""推拿"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,2.765,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'男'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：刘洋
+[THOUGHT][预约机器人] 找到空闲技师：周杰
+[THOUGHT][预约机器人] 找到空闲技师：郑斌
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：刘洋，性别：男。预约成功！
+预约成功！刘洋技师将为您服务。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适和愉快的心情。期待您的到来！
+",False,False,False,False
+appt_016,完整预约（足疗今晚8点半，女）,今晚8点半足疗60分钟，女,"{""success"": 2, ""min_gender"": ""女""}","{""evaluation"": {""id"": 368, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 1.437000000005355, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-19 20:30"", ""duration"": ""60"", ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,1.437,1,,0,0,"[REPLY][预约机器人]抱歉，我无法处理这个问题。我只能帮您处理推拿服务相关的预约。请问您需要预约服务吗？
+",False,False,False,False
+appt_017,信息缺项目（时间+性别+时长）,明天上午10点，男技师，60分钟,"{""success"": 1}","{""evaluation"": {""id"": 369, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.4059999999881256, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": ""男"", ""start_time"": ""2026-07-20 10:00"", ""duration"": ""60"", ""project"": null, ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.422,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：project，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要什么服务项目？比如按摩？
+",False,False,False,False
+appt_018,信息缺时间（项目+性别+时长）,肩颈按摩60分钟，女技师,"{""success"": 1}","{""evaluation"": {""id"": 370, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 2.875, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-19 15:12"", ""duration"": ""60"", ""project"": ""肩颈按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,2.875,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'女'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：赵敏
+[THOUGHT][预约机器人] 找到空闲技师：孙丽
+[THOUGHT][预约机器人] 找到空闲技师：吴婷
+[THOUGHT][预约机器人] 找到空闲技师：何静
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：赵敏，性别：女。预约成功！
+预约成功！您的预约已确认，技师赵敏（女）将为您服务。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适的状态。期待与您的见面，祝您一天愉快！
+",False,False,False,False
+appt_019,信息缺时长（项目+性别+时间）,明天上午10点的足疗，女技师,"{""success"": 1}","{""evaluation"": {""id"": 371, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.312000000005355, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-20 10:00"", ""duration"": null, ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.312,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：duration，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要多长时间的服务？
+",False,False,False,False
+appt_020,信息缺性别（项目+时间+时长）,今天下午3点的肩颈按摩60分钟,"{""success"": 1}","{""evaluation"": {""id"": 372, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.375, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-19 15:00"", ""duration"": ""60"", ""project"": ""肩颈按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.375,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：gender，我需要询问用户补充这些信息[REPLY][预约机器人]
+您希望选择男技师还是女技师呢？
+",False,False,False,False
+appt_021,极简输入（只剩时长）,90分钟,"{""success"": 0}","{""evaluation"": {""id"": 373, ""task_type"": ""appointment"", ""success"": 0, ""success_rate"": 0.25, ""completion_time"": 1.2650000000139698, ""turns_count"": 0, ""error_type"": ""low_completion"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": null, ""duration"": ""90分钟"", ""project"": null, ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.281,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：start_time, project, gender，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您想预约的时间是？ 请问您需要什么服务项目？比如按摩？ 您希望选择男技师还是女技师呢？
+",False,False,False,False
+appt_022,极简输入（只有项目）,我想做推拿,"{""success"": 0}","{""evaluation"": {""id"": 374, ""task_type"": ""appointment"", ""success"": 0, ""success_rate"": 0.25, ""completion_time"": 1.2820000000065193, ""turns_count"": 0, ""error_type"": ""low_completion"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": null, ""duration"": null, ""project"": ""推拿"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.282,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：start_time, duration, gender，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您想预约的时间是？ 请问您需要多长时间的服务？ 您希望选择男技师还是女技师呢？
+",False,False,False,False
+appt_023,指定技师+时间+项目（缺时长+性别）,预约王强技师，明天下午4点的足疗,"{""success"": 1, ""technician_name"": ""王强""}","{""evaluation"": {""id"": 375, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.5, ""completion_time"": 1.547000000020489, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-20 16:00"", ""duration"": null, ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": ""王强"", ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""technician_name"": true}}",1,1.563,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：duration，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要多长时间的服务？
+",False,False,False,False
+appt_024,完整预约（足疗明天上午10点，女，无时长）,明天上午10点，女，足疗,"{""success"": 1}","{""evaluation"": {""id"": 376, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.2820000000065193, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-20 10:00"", ""duration"": null, ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.282,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：duration，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要多长时间的服务？
+",False,False,False,False
+appt_025,指定技师全信息（张伟+完整）,请帮我约张伟技师，明天上午10点的肩颈60分钟,"{""success"": 2, ""technician_name"": ""张伟""}","{""evaluation"": {""id"": 377, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.75, ""completion_time"": 1.3910000000032596, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-20 10:00"", ""duration"": ""60"", ""project"": ""肩颈"", ""preference"": null, ""technician"": null, ""technician_name"": ""张伟"", ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": false, ""technician_name"": true}}",0,1.407,1,,0,0,"[REPLY][预约机器人]抱歉，我无法处理这个问题。我只能帮您处理推拿服务相关的预约。请问您需要预约服务吗？
+",False,False,False,False
+appt_026,无关请求（问服务价格）,你们店肩颈按摩多少钱,"{""success"": 0, ""unrelated"": true}","{""evaluation"": {""id"": 378, ""task_type"": ""appointment"", ""success"": 0, ""success_rate"": 0.25, ""completion_time"": 1.2969999999913853, ""turns_count"": 0, ""error_type"": ""low_completion"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": null, ""duration"": null, ""project"": ""肩颈按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""unrelated"": true}}",1,1.313,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：start_time, duration, gender，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您想预约的时间是？ 请问您需要多长时间的服务？ 您希望选择男技师还是女技师呢？
+",False,False,False,False
+appt_027,无关请求（问营业时间）,你们几点关门,"{""success"": 0, ""unrelated"": true}","{""evaluation"": {""id"": 379, ""task_type"": ""appointment"", ""success"": 0, ""success_rate"": 0.0, ""completion_time"": 1.1570000000065193, ""turns_count"": 0, ""error_type"": ""low_completion"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": null, ""duration"": null, ""project"": null, ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""unrelated"": true}}",1,1.172,1,,0,0,"[REPLY][预约机器人]抱歉，我无法处理这个问题。我只能帮您处理推拿服务相关的预约。请问您需要预约服务吗？
+",False,False,False,False
+appt_028,完整预约（经络明天9点，男，60min）,明天上午9点的经络按摩，男技师，60分钟,"{""success"": 2, ""min_gender"": ""男""}","{""evaluation"": {""id"": 380, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 3.484000000025844, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""男"", ""start_time"": ""2026-07-20 09:00"", ""duration"": ""60"", ""project"": ""经络按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,3.484,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'男'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：王强
+[THOUGHT][预约机器人] 找到空闲技师：刘洋
+[THOUGHT][预约机器人] 找到空闲技师：周杰
+[THOUGHT][预约机器人] 找到空闲技师：郑斌
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：王强，性别：男。预约成功！
+预约成功！您的技师王强（男）已为您安排好服务，期待您的到来。今天北京天气晴朗，温度适宜，出行时请注意防晒，保持舒适的心情享受您的服务。祝您生活愉快！
+",False,False,False,False
+appt_029,完整预约（肩颈今天下午4点，女，90min）,今天下午4点约肩颈按摩90分钟，女,"{""success"": 2, ""min_gender"": ""女""}","{""evaluation"": {""id"": 381, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 3.047000000020489, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-19 16:00"", ""duration"": ""90"", ""project"": ""肩颈按摩"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,3.062,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'女'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：孙丽
+[THOUGHT][预约机器人] 找到空闲技师：吴婷
+[THOUGHT][预约机器人] 找到空闲技师：何静
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：孙丽，性别：女。预约成功！
+预约成功！您的技师孙丽（女）已为您安排好服务。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适的状态来享受服务。期待与您见面！
+",False,False,False,False
+appt_030,完整预约（足疗明天晚上7点，男，45min）,明晚7点，足疗45分钟，男技师,"{""success"": 2, ""min_gender"": ""男""}","{""evaluation"": {""id"": 382, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 2.8589999999967404, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""男"", ""start_time"": ""2026-07-20 19:00"", ""duration"": ""45分钟"", ""project"": ""足疗"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,2.859,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'男'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：张伟
+[THOUGHT][预约机器人] 找到空闲技师：王强
+[THOUGHT][预约机器人] 找到空闲技师：刘洋
+[THOUGHT][预约机器人] 找到空闲技师：周杰
+[THOUGHT][预约机器人] 找到空闲技师：郑斌
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：张伟，性别：男。预约成功！
+预约成功！技师张伟已为您安排好服务，期待您的到来。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适的状态享受服务。祝您一天愉快！
+",False,False,False,False
+appt_031,完整预约（推拿今天上午11点，女，60min）,今天上午11点，女，推拿60分钟,"{""success"": 2, ""min_gender"": ""女""}","{""evaluation"": {""id"": 383, ""task_type"": ""appointment"", ""success"": 2, ""success_rate"": 1.0, ""completion_time"": 2.7810000000172295, ""turns_count"": 0, ""error_type"": null, ""error_message"": null, ""action_data"": {""gender"": ""女"", ""start_time"": ""2026-07-19 11:00"", ""duration"": ""60"", ""project"": ""推拿"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true, ""min_gender"": true}}",1,2.797,1,,0,0,"[THOUGHT][预约机器人] 正在解析预约时间和时长...
+[THOUGHT][预约机器人] 正在检索所有技师数据...
+[THOUGHT][预约机器人] 根据性别'女'筛选技师，找到5位技师
+[THOUGHT][预约机器人] 正在查找空闲技师...
+[THOUGHT][预约机器人] 找到空闲技师：李娜
+[THOUGHT][预约机器人] 找到空闲技师：赵敏
+[THOUGHT][预约机器人] 找到空闲技师：吴婷
+[THOUGHT][预约机器人] 找到空闲技师：何静
+[REPLY][预约机器人][EVAL_OK]
+
+机器人：已为您预约技师：李娜，性别：女。预约成功！
+预约成功！李娜技师将为您服务。今天北京天气晴朗，温度适宜，建议您出行时注意防晒，保持舒适的心情。期待与您的见面！
+",False,False,False,False
+appt_032,信息极简（项目+时间）,明天上午10点肩颈,"{""success"": 1}","{""evaluation"": {""id"": 384, ""task_type"": ""appointment"", ""success"": 1, ""success_rate"": 0.5, ""completion_time"": 1.4849999999860302, ""turns_count"": 0, ""error_type"": ""incomplete_info"", ""error_message"": null, ""action_data"": {""gender"": null, ""start_time"": ""2026-07-20 10:00"", ""duration"": null, ""project"": ""肩颈"", ""preference"": null, ""technician"": null, ""technician_name"": null, ""unknown_service"": null, ""last_clarification_hint"": null}}, ""matches"": {""success"": true}}",1,1.485,1,,0,0,"[THOUGHT][预约机器人]用户的预约信息不完整，缺少：duration, gender，我需要询问用户补充这些信息[REPLY][预约机器人]
+请问您需要多长时间的服务？ 您希望选择男技师还是女技师呢？
+",False,False,False,False

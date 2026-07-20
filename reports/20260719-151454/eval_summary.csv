@@ -1,0 +1,5 @@
+agent,cases,success_rate,avg_latency_s,avg_turns,composite_score,run_at,trigger_precision,trigger_recall,bad_case_extraction_rate
+classifier,8,0.875,0.799,1,0.5789,20260719-151454,,,
+appointment,32,0.9688,2.023,1,0.7605,20260719-151454,,,
+consultation,8,1.0,1.605,1,0.7239,20260719-151454,,,
+reflection,6,1.0,12.461,1,0.6076,20260719-151454,1.0,1.0,0.0

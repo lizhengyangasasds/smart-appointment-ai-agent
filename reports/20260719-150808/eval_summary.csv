@@ -1,0 +1,2 @@
+agent,cases,success_rate,avg_latency_s,avg_turns,composite_score,run_at,trigger_precision,trigger_recall,bad_case_extraction_rate
+reflection,6,1.0,11.823,1,0.6188,20260719-150808,1.0,1.0,0.0

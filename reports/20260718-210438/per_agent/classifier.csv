@@ -1,0 +1,9 @@
+case_id,scenario,input,expected,got,success,latency_s,turns,error,prompt_tokens,completion_tokens,raw_response,expected_should_reflect,got_should_reflect,reflection_log_written,bad_cases_non_empty
+cls_001,明确预约意图,我想预约明天上午10点的肩颈按摩,"{""task_type"": ""appointment""}","{""task_type"": ""appointment""}",1,0.609,1,,0,0,,False,False,False,False
+cls_002,明确预约意图（口语化）,帮我约一下今晚8点的足疗,"{""task_type"": ""appointment""}","{""task_type"": ""appointment""}",1,0.937,1,,0,0,,False,False,False,False
+cls_003,明确咨询意图,你们店营业时间是几点？,"{""task_type"": ""query""}","{""task_type"": ""query""}",1,1.015,1,,0,0,,False,False,False,False
+cls_004,明确咨询意图（项目相关）,肩颈推拿多少钱一次？,"{""task_type"": ""query""}","{""task_type"": ""query""}",1,0.969,1,,0,0,,False,False,False,False
+cls_005,无关请求（闲聊）,今天天气怎么样？,"{""task_type"": ""other""}","{""task_type"": ""other""}",1,0.968,1,,0,0,,False,False,False,False
+cls_006,无关请求（寒暄）,你好,"{""task_type"": ""other""}","{""task_type"": ""other""}",1,0.985,1,,0,0,,False,False,False,False
+cls_007,模糊边界（单字按摩，可能预约也可能咨询）,按摩,"{""task_type"": ""appointment""}","{""task_type"": ""query""}",0,1.015,1,,0,0,,False,False,False,False
+cls_008,模糊边界（想咨询技师信息）,技师,"{""task_type"": ""query""}","{""task_type"": ""query""}",1,0.906,1,,0,0,,False,False,False,False

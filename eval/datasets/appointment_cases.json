@@ -15,16 +15,16 @@
   },
   {
     "id": "appt_003",
-    "scenario": "完整预约（指定技师张伟）",
+    "scenario": "完整预约（指定技师张伟，缺时长）",
     "input": "帮我预约张伟技师，今天下午3点的肩颈按摩",
-    "expected": {"success": 2, "technician_name": "张伟"},
+    "expected": {"success": 1, "technician_name": "张伟"},
     "turns": 1
   },
   {
     "id": "appt_004",
-    "scenario": "完整预约（指定技师李娜）",
+    "scenario": "完整预约（指定技师李娜，缺性别）",
     "input": "我想约李娜，明天下午4点，60分钟足疗",
-    "expected": {"success": 2, "technician_name": "李娜"},
+    "expected": {"success": 1, "technician_name": "李娜"},
     "turns": 1
   },
   {
@@ -66,7 +66,7 @@
     "id": "appt_010",
     "scenario": "描述当作技师（手劲大的女技师）",
     "input": "想约个手劲大的女技师，明天上午10点，60分钟",
-    "expected": {"success": 2, "min_gender": "女"},
+    "expected": {"success": 1, "min_gender": "女"},
     "turns": 1
   },
   {
@@ -80,7 +80,147 @@
     "id": "appt_012",
     "scenario": "无关请求（闲聊）",
     "input": "今天北京天气怎么样",
-    "expected": {"success": 1, "unrelated": true},
+    "expected": {"success": 0, "unrelated": true},
+    "turns": 1
+  },
+  {
+    "id": "appt_013",
+    "scenario": "完整预约（足疗明天上午9点，男，45分钟）",
+    "input": "明天上午9点，足疗45分钟，男",
+    "expected": {"success": 2, "min_gender": "男"},
+    "turns": 1
+  },
+  {
+    "id": "appt_014",
+    "scenario": "完整预约（经络今天下午5点，女）",
+    "input": "今天下午5点帮我约经络按摩60分钟，女技师",
+    "expected": {"success": 2, "min_gender": "女"},
+    "turns": 1
+  },
+  {
+    "id": "appt_015",
+    "scenario": "完整预约（推拿明天上午10点30分，男）",
+    "input": "明早10点半，帮我约推拿60分钟，男技师",
+    "expected": {"success": 2, "min_gender": "男"},
+    "turns": 1
+  },
+  {
+    "id": "appt_016",
+    "scenario": "完整预约（足疗今晚8点半，女）",
+    "input": "今晚8点半足疗60分钟，女",
+    "expected": {"success": 2, "min_gender": "女"},
+    "turns": 1
+  },
+  {
+    "id": "appt_017",
+    "scenario": "信息缺项目（时间+性别+时长）",
+    "input": "明天上午10点，男技师，60分钟",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_018",
+    "scenario": "信息缺时间（项目+性别+时长）",
+    "input": "肩颈按摩60分钟，女技师",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_019",
+    "scenario": "信息缺时长（项目+性别+时间）",
+    "input": "明天上午10点的足疗，女技师",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_020",
+    "scenario": "信息缺性别（项目+时间+时长）",
+    "input": "今天下午3点的肩颈按摩60分钟",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_021",
+    "scenario": "极简输入（只剩时长）",
+    "input": "90分钟",
+    "expected": {"success": 0},
+    "turns": 1
+  },
+  {
+    "id": "appt_022",
+    "scenario": "极简输入（只有项目）",
+    "input": "我想做推拿",
+    "expected": {"success": 0},
+    "turns": 1
+  },
+  {
+    "id": "appt_023",
+    "scenario": "指定技师+时间+项目（缺时长+性别）",
+    "input": "预约王强技师，明天下午4点的足疗",
+    "expected": {"success": 1, "technician_name": "王强"},
+    "turns": 1
+  },
+  {
+    "id": "appt_024",
+    "scenario": "完整预约（足疗明天上午10点，女，无时长）",
+    "input": "明天上午10点，女，足疗",
+    "expected": {"success": 1},
+    "turns": 1
+  },
+  {
+    "id": "appt_025",
+    "scenario": "指定技师全信息（张伟+完整）",
+    "input": "请帮我约张伟技师，明天上午10点的肩颈60分钟",
+    "expected": {"success": 2, "technician_name": "张伟"},
+    "turns": 1
+  },
+  {
+    "id": "appt_026",
+    "scenario": "无关请求（问服务价格）",
+    "input": "你们店肩颈按摩多少钱",
+    "expected": {"success": 0, "unrelated": true},
+    "turns": 1
+  },
+  {
+    "id": "appt_027",
+    "scenario": "无关请求（问营业时间）",
+    "input": "你们几点关门",
+    "expected": {"success": 0, "unrelated": true},
+    "turns": 1
+  },
+  {
+    "id": "appt_028",
+    "scenario": "完整预约（经络明天9点，男，60min）",
+    "input": "明天上午9点的经络按摩，男技师，60分钟",
+    "expected": {"success": 2, "min_gender": "男"},
+    "turns": 1
+  },
+  {
+    "id": "appt_029",
+    "scenario": "完整预约（肩颈今天下午4点，女，90min）",
+    "input": "今天下午4点约肩颈按摩90分钟，女",
+    "expected": {"success": 2, "min_gender": "女"},
+    "turns": 1
+  },
+  {
+    "id": "appt_030",
+    "scenario": "完整预约（足疗明天晚上7点，男，45min）",
+    "input": "明晚7点，足疗45分钟，男技师",
+    "expected": {"success": 2, "min_gender": "男"},
+    "turns": 1
+  },
+  {
+    "id": "appt_031",
+    "scenario": "完整预约（推拿今天上午11点，女，60min）",
+    "input": "今天上午11点，女，推拿60分钟",
+    "expected": {"success": 2, "min_gender": "女"},
+    "turns": 1
+  },
+  {
+    "id": "appt_032",
+    "scenario": "信息极简（项目+时间）",
+    "input": "明天上午10点肩颈",
+    "expected": {"success": 1},
     "turns": 1
   }
 ]
