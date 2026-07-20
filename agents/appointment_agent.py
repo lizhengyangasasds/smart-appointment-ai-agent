@@ -444,14 +444,24 @@ class AppointmentAgent(ReflectionAwareMixin):
                     if not recommendation_pending and not self.appointment_history.get('awaiting_confirmation'):
                         _record_eval(eval_reason)
                         self._reset_state_after_appointment()
+                    elif recommendation_pending:
+                        # 推荐阶段也落一行 PARTIAL(incomplete_info)，
+                        # 否则后续用户确认走完时，DB 仍缺这条推荐阶段的痕迹
+                        # —— 评测、A/B 和反思触发都依赖 task_evaluations 行存在。
+                        # 评估值是"已发出备选推荐、等待用户决策"的快照，不是最终结果。
+                        _record_eval("incomplete_info")
                     return
 
                 # 5. 处理信息不完整的情况：未结束，记为 in_progress（不算失败，
                 #    等用户补齐或下次评估；此处评估为空 PARTIAL/incomplete）
                 async for token in self.appointment_processor.handle_incomplete_info(data, self.appointment_history):
                     yield token
-                # 这里不调 _record_eval，因为任务尚未结束；
-                # 后续每次 run_stream 都会重新开始计时并累计轮数。
+                # 修复：补落 incomplete_info 评估行。
+                # 原设计是"任务未结束不评估"，但评测、A/B 对比和反思触发都依赖 task_evaluations
+                # 行存在 —— 不落库等于"用户输入消失"。这里以 incomplete_info 落一行 PARTIAL，
+                # evaluator 内部根据 completion_rate 自动判定 PARTIAL/incomplete_info 或 FAILED/low_completion。
+                # 失败注入靠 evaluator 内部完成（completion_rate < 0.5 → FAILED）。
+                _record_eval("incomplete_info")
                 return
 
             except Exception as e:

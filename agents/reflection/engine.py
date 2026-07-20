@@ -267,7 +267,7 @@ class ReflectionEngine:
                 findings=findings,
                 recommendations=recommendations,
                 patterns_discovered=patterns,
-                bad_cases=[bc.get('description', '') for bc in bad_cases]
+                bad_cases=bad_cases
             )
 
             # 更新评估记录的反思标记
