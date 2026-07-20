@@ -338,6 +338,35 @@ class AppointmentProcessor:
                 # 同步把 appointment_history 也清掉，避免后续链路再读到脏数据
                 appointment_history["technician_name"] = "未知"
                 technician_name = None
+
+            # ===== 结构性业务问题硬编码兜底：主动搜索邻近时段 =====
+            # 剥离点：slot_unavailable 是排班冲突，LLM prompt 注入无效，
+            #        必须通过算法直接查询解决。这不依赖 reflection 闭环。
+            original_time_str = appointment_history.get("start_time", "")
+            fallback_slots = self.technician_finder.find_fallback_slots(
+                appointment_history,
+                yield_func=lambda m: thought_msgs.append(m),
+            )
+            if fallback_slots:
+                # 有 fallback 时：发推荐消息，等待用户确认
+                fallback_msg = self.message_builder.create_fallback_slot_message(
+                    fallback_slots=fallback_slots,
+                    original_time=original_time_str,
+                    appointment_history=appointment_history,
+                )
+                # 收集 fallback 搜索的思考日志
+                for msg in thought_msgs:
+                    yield msg
+                yield f"[REPLY][预约机器人]{fallback_msg}"
+                # 存第一个 fallback 供后续确认用（用户确认后走 _process_successful_appointment）
+                appointment_history["confirmed_technician"] = fallback_slots[0]["technician"]
+                appointment_history["awaiting_confirmation"] = True
+                # 注意：不发 [EVAL_FAILED]，因为我们主动推荐了替代方案
+                # （用户确认后 _process_successful_appointment 会发 [EVAL_OK]）
+                yield "[SIGNAL]recommendation_pending"
+                return
+
+            # 无 fallback：裸失败
             reply = self.message_builder.create_appointment_failure_message(technician_name)
             yield f"[REPLY][预约机器人]{reply}"
             yield "[EVAL_FAILED]reason=slot_unavailable"

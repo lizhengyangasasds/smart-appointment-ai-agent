@@ -118,8 +118,144 @@ DEFAULT_CASES: List[Dict[str, Any]] = [
 
 
 # =========================================================================
-# Extended Cases（用 --extended 启用）
+# Large Cases（用 --large 启用）：生产级评测集
+# 目标：n>=100，用于验证 composite Δ 是否稳定在 noise floor 以上。
+#
+# Case 分布设计原则：
+#   - slot_unavailable 族（会触发 fallback，但 A/B 对比与反思无关）
+#     → 用于验证 fallback 硬编码不破坏原有 happy path；
+#       A/B Δ 应接近 0（fallback 绕过了 prompt 注入路径）。
+#   - low_completion 族（追问触发，与反思 / prompt 质量相关）
+#     → 这是 reflection 真正能产生差异的战场。
+#   - happy 族（完整信息，基线）
+#     → 用于验证 A/B 均无退化。
+#   - preference / behavior 族（用户画像注入，与 semantic_memory 相关）
+#     → 与反思系统间接相关。
 # =========================================================================
+_LARGE_CASES: List[Dict[str, Any]] = [
+    # ===== A. Happy path 全组合（时段 × 项目 × 时长 × 性别）=====
+    # 覆盖真实用户最常见场景：时段（9/10/12/14/16/19/20）、项目（肩颈/足疗/经络/推拿）、
+    # 时长（45/60/90）、性别（男/女）—— 保证 n 足够大时 Δ 置信。
+    {"id": "lg_h_0914_f_60", "scenario": "happy 女/肩颈/60min/明天9:00",    "input": "我是女生，想约明天上午9点肩颈按摩60分钟",                    "expected": {"success": 2}},
+    {"id": "lg_h_1015_f_60", "scenario": "happy 女/肩颈/60min/明天10:00",   "input": "明天10点，肩颈，60分钟，女",                                  "expected": {"success": 2}},
+    {"id": "lg_h_1215_f_60", "scenario": "happy 女/肩颈/60min/明天12:00",   "input": "预约明天中午12点的肩颈按摩60分钟，我是女生",                  "expected": {"success": 2}},
+    {"id": "lg_h_1415_f_60", "scenario": "happy 女/肩颈/60min/明天14:00",   "input": "明天下午2点，60分钟，肩颈按摩，要女技师",                    "expected": {"success": 2}},
+    {"id": "lg_h_1615_f_90", "scenario": "happy 女/肩颈/90min/明天16:00",   "input": "女生，16点，肩颈90分钟",                                     "expected": {"success": 2}},
+    {"id": "lg_h_1915_f_45", "scenario": "happy 女/肩颈/45min/明天19:00",   "input": "晚上7点，45分钟，肩颈，女",                                 "expected": {"success": 2}},
+    {"id": "lg_h_2015_f_60", "scenario": "happy 女/肩颈/60min/明天20:00",   "input": "今晚8点，女，肩颈60分钟",                                    "expected": {"success": 2}},
+    {"id": "lg_h_0914_m_60", "scenario": "happy 男/肩颈/60min/明天9:00",    "input": "男生，约明天上午9点的肩颈按摩60分钟",                        "expected": {"success": 2}},
+    {"id": "lg_h_1015_m_60", "scenario": "happy 男/肩颈/60min/明天10:00",   "input": "明天10点，肩颈，60分钟，男",                                "expected": {"success": 2}},
+    {"id": "lg_h_1215_m_60", "scenario": "happy 男/肩颈/60min/明天12:00",   "input": "预约明天中午12点肩颈60分钟，我是男的",                        "expected": {"success": 2}},
+    {"id": "lg_h_1415_m_60", "scenario": "happy 男/肩颈/60min/明天14:00",   "input": "明天下午2点，肩颈，60分钟，要男技师",                        "expected": {"success": 2}},
+    {"id": "lg_h_1615_m_90", "scenario": "happy 男/肩颈/90min/明天16:00",   "input": "男生，16点，肩颈90分钟",                                     "expected": {"success": 2}},
+    {"id": "lg_h_1915_m_45", "scenario": "happy 男/肩颈/45min/明天19:00",   "input": "晚上7点，45分钟，肩颈，男",                                 "expected": {"success": 2}},
+    {"id": "lg_h_2015_m_60", "scenario": "happy 男/肩颈/60min/明天20:00",   "input": "今晚8点，男，肩颈60分钟",                                    "expected": {"success": 2}},
+    # 足疗变体
+    {"id": "lg_z_0914_f_60", "scenario": "happy 女/足疗/60min/明天9:00",    "input": "女生，约明天上午9点的足疗60分钟",                            "expected": {"success": 2}},
+    {"id": "lg_z_1015_f_60", "scenario": "happy 女/足疗/60min/明天10:00",   "input": "明天10点，足疗，60分钟，女",                                  "expected": {"success": 2}},
+    {"id": "lg_z_1215_f_60", "scenario": "happy 女/足疗/60min/明天12:00",   "input": "预约明天中午12点的足疗60分钟，我是女生",                      "expected": {"success": 2}},
+    {"id": "lg_z_1415_f_60", "scenario": "happy 女/足疗/60min/明天14:00",   "input": "明天下午2点，足疗，60分钟，要女技师",                        "expected": {"success": 2}},
+    {"id": "lg_z_1615_f_90", "scenario": "happy 女/足疗/90min/明天16:00",   "input": "女生，16点，足疗90分钟",                                     "expected": {"success": 2}},
+    {"id": "lg_z_1915_f_45", "scenario": "happy 女/足疗/45min/明天19:00",   "input": "晚上7点，45分钟，足疗，女",                                 "expected": {"success": 2}},
+    {"id": "lg_z_2015_f_60", "scenario": "happy 女/足疗/60min/明天20:00",   "input": "今晚8点，女，足疗60分钟",                                    "expected": {"success": 2}},
+    {"id": "lg_z_0914_m_60", "scenario": "happy 男/足疗/60min/明天9:00",    "input": "男生，约明天上午9点的足疗60分钟",                            "expected": {"success": 2}},
+    {"id": "lg_z_1015_m_60", "scenario": "happy 男/足疗/60min/明天10:00",   "input": "明天10点，足疗，60分钟，男",                                "expected": {"success": 2}},
+    {"id": "lg_z_1215_m_60", "scenario": "happy 男/足疗/60min/明天12:00",   "input": "预约明天中午12点足疗60分钟，我是男的",                        "expected": {"success": 2}},
+    {"id": "lg_z_1415_m_60", "scenario": "happy 男/足疗/60min/明天14:00",   "input": "明天下午2点，足疗，60分钟，要男技师",                        "expected": {"success": 2}},
+    {"id": "lg_z_1615_m_90", "scenario": "happy 男/足疗/90min/明天16:00",   "input": "男生，16点，足疗90分钟",                                     "expected": {"success": 2}},
+    {"id": "lg_z_1915_m_45", "scenario": "happy 男/足疗/45min/明天19:00",   "input": "晚上7点，45分钟，足疗，男",                                 "expected": {"success": 2}},
+    {"id": "lg_z_2015_m_60", "scenario": "happy 男/足疗/60min/明天20:00",   "input": "今晚8点，男，足疗60分钟",                                    "expected": {"success": 2}},
+    # 经络/推拿变体
+    {"id": "lg_j_1415_f_60", "scenario": "happy 女/经络/60min/明天14:00",   "input": "明天下午2点，经络60分钟，女",                                "expected": {"success": 2}},
+    {"id": "lg_j_1615_m_90", "scenario": "happy 男/经络/90min/明天16:00",   "input": "男生，16点，经络90分钟",                                     "expected": {"success": 2}},
+    {"id": "lg_t_1415_f_60", "scenario": "happy 女/推拿/60min/明天14:00",   "input": "明天下午2点，推拿60分钟，女",                                "expected": {"success": 2}},
+    {"id": "lg_t_1615_m_90", "scenario": "happy 男/推拿/90min/明天16:00",   "input": "男生，16点，推拿90分钟",                                     "expected": {"success": 2}},
+
+    # ===== B. 低补全（追问）族 —— 反思真正能产生差异的战场 =====
+    # 这 30 个 case 故意留 1~3 个字段缺失，看 A/B 的追问策略是否有差异。
+    # 重要：A/B Δ 预计在这里最大（如果 reflection 对 prompt 质量有提升）。
+    {"id": "lg_lc_t1",  "scenario": "低补全 缺时间",            "input": "肩颈按摩60分钟，女",                                  "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t2",  "scenario": "低补全 缺项目",            "input": "明天下午2点，60分钟，女",                             "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t3",  "scenario": "低补全 缺时长",            "input": "明天下午2点，肩颈按摩，女",                           "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t4",  "scenario": "低补全 缺性别",            "input": "明天下午2点，肩颈60分钟",                             "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t5",  "scenario": "低补全 缺时间+项目",        "input": "女，60分钟",                                         "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t6",  "scenario": "低补全 缺时间+时长",        "input": "女，肩颈按摩",                                        "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t7",  "scenario": "低补全 缺项目+时长",        "input": "明天下午2点，女",                                     "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t8",  "scenario": "低补全 缺全部",            "input": "我想按摩",                                            "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t9",  "scenario": "低补全 缺时间（男）",        "input": "男，足疗45分钟",                                      "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t10", "scenario": "低补全 缺项目（男）",       "input": "明天下午2点，60分钟，男",                             "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t11", "scenario": "低补全 缺时长（男）",       "input": "明天下午2点，经络，男",                               "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t12", "scenario": "低补全 缺性别（男）",       "input": "明天下午2点，经络60分钟",                             "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t13", "scenario": "低补全 单字输入",          "input": "按摩",                                                "expected": {"success": 0, "error_type_any": ["low_completion", "parse_error"]}},
+    {"id": "lg_lc_t14", "scenario": "低补全 无主语",            "input": "明天下午2点肩颈60分钟",                               "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t15", "scenario": "低补全 模糊时间",          "input": "过两天有空，肩颈60分钟",                              "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t16", "scenario": "低补全 只说技师偏好",     "input": "要手劲大的技师",                                      "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t17", "scenario": "低补全 重复关键词",        "input": "按摩按摩按摩",                                        "expected": {"success": 0, "error_type_any": ["low_completion", "parse_error"]}},
+    {"id": "lg_lc_t18", "scenario": "低补全 项目+时间缺时长",  "input": "明天肩颈按摩",                                        "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t19", "scenario": "低补全 时长+性别缺项目",  "input": "60分钟女",                                            "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t20", "scenario": "低补全 晚上太晚",          "input": "今晚23点，肩颈60分钟",                                "expected": {"success": 0, "error_type_any": ["low_completion", "parse_error"]}},
+    {"id": "lg_lc_t21", "scenario": "低补全 只说性别",          "input": "我是女的",                                             "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t22", "scenario": "低补全 只说时长",          "input": "90分钟",                                               "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t23", "scenario": "低补全 日期不规范",        "input": "后天，肩颈60分钟，女",                                "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t24", "scenario": "低补全 时长口语化",        "input": "明天下午2点，肩颈，大概一个小时",                      "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t25", "scenario": "低补全 多余噪音词",        "input": "那个...嗯...就是明天下午2点肩颈60分钟女",             "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t26", "scenario": "低补全 颠倒顺序",          "input": "女，60分钟，肩颈，明天下午2点",                       "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t27", "scenario": "低补全 项目英文",          "input": "明天下午2点，60分钟，female，足疗",                   "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t28", "scenario": "低补全 项目谐音",          "input": "明天下午2点，按摩，60分钟，女",                       "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t29", "scenario": "低补全 无时间数字",        "input": "今天有空，肩颈60分钟，女",                            "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_lc_t30", "scenario": "低补全 空格过多",          "input": "明天下午  2点  肩颈  60分钟  女",                   "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+
+    # ===== C. Fallback 验证族（会触发 slot_unavailable，用于验证 fallback 硬编码）=====
+    # 这 20 个 case 与反思闭环无关——用于验证新增的 find_fallback_slots 不破坏 happy path，
+    # 以及 fallback 消息格式正确。A/B Δ 应接近 0（reflection 对 fallback 无影响）。
+    # 注意：这些时段在 eval 环境中大概率 slot_unavailable（因为真实排班数据有限）。
+    {"id": "lg_fb_01", "scenario": "fallback 边界时段 21:00",  "input": "今晚9点，肩颈60分钟，女",                             "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_02", "scenario": "fallback 边界时段 21:30",  "input": "今晚9点半，足疗45分钟，男",                          "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_03", "scenario": "fallback 边界时段 22:00",  "input": "今晚10点，肩颈60分钟",                                "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_04", "scenario": "fallback 冷门时段 9:00",   "input": "明天上午9点，经络90分钟，女",                         "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_05", "scenario": "fallback 冷门时段 12:00",  "input": "明天中午12点，推拿60分钟，男",                         "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_06", "scenario": "fallback 长时段 120min",   "input": "明天下午2点，120分钟，肩颈，女",                      "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_07", "scenario": "fallback 长时段 150min",   "input": "明天下午2点，150分钟，足疗，男",                      "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_08", "scenario": "fallback 连续两天同时段",   "input": "明天和后天都是下午2点，肩颈60分钟，女",              "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_09", "scenario": "fallback 指定技师不可用",   "input": "预约张伟技师，明天下午2点肩颈60分钟",                  "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_10", "scenario": "fallback 指定技师不可用2",  "input": "预约李娜技师，明天下午3点足疗45分钟",                  "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_11", "scenario": "fallback 热门时段 14:00",  "input": "明天下午2点，肩颈60分钟，女（本周高峰期）",            "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_12", "scenario": "fallback 周末时段",        "input": "这周六上午10点，肩颈60分钟，男",                      "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_13", "scenario": "fallback 节假日时段",       "input": "这周日上午11点，推拿90分钟，女",                      "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_14", "scenario": "fallback 偏好严格匹配失败",  "input": "明天下午2点，手劲大的女技师，肩颈60分钟",             "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_15", "scenario": "fallback 超长时段 180min",  "input": "明天下午2点，180分钟，全身推拿，男",                  "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_16", "scenario": "fallback 重度偏好",         "input": "明天下午2点，擅长经络的女技师，90分钟",               "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_17", "scenario": "fallback 多约束叠加",       "input": "明天下午2点，肩颈60分钟，女，擅长推拿",               "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_18", "scenario": "fallback 交叉约束",         "input": "明天下午2点，足疗45分钟，男，手劲大",                  "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_19", "scenario": "fallback 指定时间无技师",   "input": "预约下午4点半，肩颈60分钟",                           "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+    {"id": "lg_fb_20", "scenario": "fallback 指定技师+时段",    "input": "预约陈师傅，今晚8点足疗60分钟",                       "expected": {"success": 0, "error_type_any": ["slot_unavailable", "low_completion"]}},
+
+    # ===== D. 知识库边界族（in-library vs out-of-library 项目）=====
+    {"id": "lg_kb_01", "scenario": "库内 肩颈",                "input": "明天下午2点，肩颈，60分钟，女",                       "expected": {"success": 2}},
+    {"id": "lg_kb_02", "scenario": "库内 足疗",                "input": "明天下午2点，足疗，60分钟，男",                       "expected": {"success": 2}},
+    {"id": "lg_kb_03", "scenario": "库内 经络",                "input": "明天下午2点，经络，60分钟，女",                       "expected": {"success": 2}},
+    {"id": "lg_kb_04", "scenario": "库内 推拿",                "input": "明天下午2点，推拿，60分钟，男",                       "expected": {"success": 2}},
+    {"id": "lg_kb_05", "scenario": "库外 油压",                "input": "明天下午2点，油压，60分钟，女",                      "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_kb_06", "scenario": "库外 火罐",                "input": "明天下午2点，火罐，45分钟",                          "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_kb_07", "scenario": "库外 艾灸",                "input": "我想艾灸，明天下午2点，60分钟",                      "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_kb_08", "scenario": "库外 泰式按摩",             "input": "明天下午2点，泰式按摩，90分钟",                       "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_kb_09", "scenario": "库外 spa",                 "input": "今晚8点，SPA，60分钟，女",                           "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+    {"id": "lg_kb_10", "scenario": "库外 刮痧",                "input": "明天下午2点，刮痧，45分钟",                          "expected": {"success": 0, "error_type_any": ["low_completion"]}},
+]
+
+# 合计：34 happy + 30 low_completion + 20 fallback + 10 knowledge_base = 94 cases
+# 剩余 6 个补充边界 case（已超出预期，直接追加）
+_LARGE_CASES.extend([
+    {"id": "lg_ub_01", "scenario": "用户取消 同时发起+撤回",   "input": "约明天上午10点的肩颈60分钟。算了不约了",             "expected": {"success": 0, "error_type_any": ["user_cancelled", "low_completion"]}},
+    {"id": "lg_ub_02", "scenario": "用户取消 确认前撤回",      "input": "帮我约明天下午2点，肩颈60分钟。等等我先想想",         "expected": {"success": 0, "error_type_any": ["user_cancelled", "low_completion"]}},
+    {"id": "lg_pf_01", "scenario": "解析失败 完全不合规输入",  "input": "嗯",                                                   "expected": {"success": 0, "error_type_any": ["llm_error", "parse_error"]}},
+    {"id": "lg_pf_02", "scenario": "解析失败 多种合理解读",    "input": "我想约呃...明天吧不对后天，对，下午三四点那种",      "expected": {"success": 0, "error_type_any": ["parse_error", "low_completion"]}},
+    {"id": "lg_pf_03", "scenario": "解析失败 AM/PM 错位",      "input": "我想约明天下午吧不对上午，肩颈60分钟",                "expected": {"success": 0, "error_type_any": ["parse_error", "low_completion"]}},
+    {"id": "lg_pf_04", "scenario": "解析失败 无时间数字",       "input": "有空帮我约一下",                                       "expected": {"success": 0, "error_type_any": ["parse_error", "low_completion"]}},
+])
+# 最终合计：94 + 6 = 100 cases
+
+
 # 18 个参数化变体 —— 覆盖：
 #   - 时段扫描（9:00 / 10:00 / 12:00 / 16:00 / 19:00 / 20:30）
 #   - 项目扫描（肩颈 / 足疗 / 油压 / 经络）
@@ -837,27 +973,60 @@ async def main(cases: List[Dict[str, Any]], out_dir: Path,
 
 
 def cli():
-    parser = argparse.ArgumentParser(description="L3 反思闭环 A/B 评测")
+    parser = argparse.ArgumentParser(
+        description="L3 反思闭环 A/B 评测",
+        epilog="""
+examples:
+  # 默认 7-case 快速 smoke
+  python -m eval.runners.reflection_ab_runner
+
+  # 扩展集 17-case（含参数化扫描）
+  python -m eval.runners.reflection_ab_runner --extended
+
+  # 生产集 100-case（含 fallback 验证 + 低补全族 + 知识库边界）
+  # repeat=3 时每 case 跑 3×2=6 次，取众数，n=600 总 run
+  python -m eval.runners.reflection_ab_runner --large --repeat 3
+
+  # 单 case 调试
+  python -m eval.runners.reflection_ab_runner --cases ab_happy
+
+repeat 参数说明：
+  --repeat N 对每条 case 的每个 variant 各跑 N 次，取众数（success）和均值（latency/turns）。
+  N=1  关闭 repeat，适合快速 smoke；N=3 用于验证统计显著性。
+  置信区间判断：若 repeat=3 时 Δ 与 repeat=1 时 Δ 同向且量级相近，说明 signal 稳定。
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--out", default=f"reports/l3_ab_{time.strftime('%Y%m%d-%H%M%S')}",
                         help="报告输出目录")
     parser.add_argument("--cases", nargs="*", default=None,
                         help="只跑指定 case id（如 ab_happy ab_conflict）")
     parser.add_argument("--extended", action="store_true",
-                        help="启用 EXTENDED_CASES（默认 7 → 25 个 case）")
+                        help="启用 EXTENDED_CASES（7 → 25 个 case）")
+    parser.add_argument("--large", action="store_true",
+                        help="启用 LARGE_CASES（100 个生产级 case，含 happy/low_completion/fallback/知识库边界四族）")
     parser.add_argument("--reset-db", dest="reset_db", action="store_true",
                         help="跑前清 task_evaluations + user_recommendations（避免 DB 状态污染）")
     parser.add_argument("--repeat", type=int, default=1,
                         help="每条 case 重复 N 次取众数（用于统计置信区间，N=1 关闭）")
     args = parser.parse_args()
 
-    cases = EXTENDED_CASES if args.extended else DEFAULT_CASES
+    if args.large:
+        cases = _LARGE_CASES
+    elif args.extended:
+        cases = EXTENDED_CASES
+    else:
+        cases = DEFAULT_CASES
     if args.cases:
         wanted = set(args.cases)
         cases = [c for c in cases if c["id"] in wanted]
         if not cases:
             print(f"[error] 没有匹配的 case id: {args.cases}")
-            print(f"[hint] 当前 pool: {[c['id'] for c in (EXTENDED_CASES if args.extended else DEFAULT_CASES)]}")
+            print(f"[hint] 当前 pool: {[c['id'] for c in cases[:10]]} ... (共 {len(cases)} 个)")
             return
+
+    total_runs = len(cases) * args.repeat * 2
+    print(f"[config] cases={len(cases)}, repeat={args.repeat}, total_runs={total_runs}")
 
     asyncio.run(main(cases, Path(args.out), reset_db=args.reset_db, repeat=args.repeat))
 

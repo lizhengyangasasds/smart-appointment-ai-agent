@@ -165,7 +165,7 @@ class RecommendationService:
             return None
 
         try:
-                loop = asyncio.get_event_loop()
+            loop = asyncio.get_event_loop()
             if loop.is_running():
                 import concurrent.futures
 

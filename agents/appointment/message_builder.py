@@ -206,6 +206,50 @@ class MessageBuilder:
             f"看起来您是想约「{best_match}」（相似度 {score_pct}%）吗？\n"
         )
     
+    def create_fallback_slot_message(
+        self,
+        fallback_slots: list,
+        original_time: str,
+        appointment_history: Dict[str, Any],
+    ) -> str:
+        """生成 fallback 时段推荐消息 —— 用户体验升级关键函数。
+
+        当主时段冲突（slot_unavailable）时，主动推荐 ±30/60 分钟邻近时段的可用技师，
+        把「结构性业务失败」转化为「可操作的替代方案」。
+
+        Args:
+            fallback_slots: find_fallback_slots() 返回的 [{technician, fallback_start, offset_min}, ...]
+            original_time: 用户请求的原始时段（用于提示）
+            appointment_history: 预约历史
+
+        Returns:
+            友好的 fallback 推荐消息（包含具体技师+时段，可直接展示给用户）
+        """
+        if not fallback_slots:
+            return "\n机器人：抱歉，该时段没有合适的技师空闲，请选择其他时间或调整偏好。\n"
+
+        project = appointment_history.get("project", "按摩服务")
+        duration = appointment_history.get("duration", "")
+
+        lines = []
+        for slot in fallback_slots[:3]:  # 最多展示 3 个 fallback
+            tech = slot["technician"]
+            t = slot["fallback_start"]
+            offset = slot["offset_min"]
+            offset_str = f"+{offset}分钟" if offset > 0 else f"{offset}分钟"
+            time_str = t.strftime("%m月%d日 %H:%M")
+            lines.append(
+                f"{tech['name']}（{tech['gender']}，专长：{tech.get('strength', '暂无')})"
+                f" 在 {time_str}（与您选择的时间相差 {offset_str}）有空"
+            )
+
+        suggestions = "\n".join(f"• {l}" for l in lines)
+        return (
+            f"\n机器人：很抱歉，您选择的 {original_time} {project} {duration} 该时段暂时没有合适的技师空闲。"
+            f"\n以下是临近时段的可选方案：\n{suggestions}\n"
+            f"请问您是否愿意选择其中一个时段呢？\n"
+        )
+
     def create_unrelated_message(self) -> str:
         """创建无关请求的消息"""
         return "[REPLY][预约机器人]抱歉，我无法处理这个问题。我只能帮您处理推拿服务相关的预约。请问您需要预约服务吗？\n"

@@ -399,6 +399,97 @@ class TechnicianFinder:
             yield_func("[THOUGHT][预约机器人] 没有找到空闲技师\n")
         return None
 
+    def find_fallback_slots(
+        self,
+        appointment_history: Dict[str, Any],
+        yield_func: Optional[Callable] = None,
+    ) -> List[Dict[str, Any]]:
+        """硬编码兜底：主时段冲突时，搜索 ±30/60 分钟邻近时段内可用的候选技师。
+
+        这是对反思闭环的"结构性业务问题"剥离 —— slot_unavailable 是排班冲突，
+        不应依赖 LLM prompt 注入，只能通过算法直接查询解决。
+
+        Args:
+            appointment_history: 预约历史，包含 start_time / duration / gender / preference
+            yield_func: 可选，打印思考日志
+
+        Returns:
+            [{technician, fallback_start, fallback_end, offset_min}] 按 offset 升序排列
+        """
+        from services.appointment_service import AppointmentService
+        appointment_service = AppointmentService()
+
+        start_time_str = appointment_history.get("start_time")
+        duration_str = appointment_history.get("duration")
+        gender = appointment_history.get("gender")
+        preference = appointment_history.get("preference")
+
+        start_time, end_time, duration_min = self.parse_time_and_duration(
+            start_time_str, duration_str
+        )
+        if not start_time or not duration_min:
+            return []
+
+        # 时段补偿表：优先 ±30min，再 ±60min
+        offsets = [-60, -30, 30, 60]
+
+        results: List[Dict[str, Any]] = []
+        seen_tech_ids: set = set()
+
+        for offset in offsets:
+            candidate_start = start_time + timedelta(minutes=offset)
+            candidate_end = candidate_start + timedelta(minutes=duration_min)
+
+            # 营业时间校验（假设 9:00-22:00）
+            if candidate_start.hour < 9 or candidate_end.hour > 22 or (
+                candidate_end.hour == 22 and candidate_end.minute > 0
+            ):
+                continue
+
+            if yield_func:
+                sign = "+" if offset > 0 else ""
+                yield_func(
+                    f"[THOUGHT][预约机器人] 搜索 fallback 时段 {sign}{offset}min "
+                    f"({candidate_start.strftime('%H:%M')})...\n"
+                )
+
+            # 取候选技师：先筛选同性别，再按偏好
+            candidates = list(appointment_service.get_all_technicians())
+            if gender and gender != "未知":
+                gender_std = gender.strip()
+                if gender_std in ("男", "男性", "男技师"):
+                    candidates = [t for t in candidates if t.get("gender") == "男"]
+                elif gender_std in ("女", "女性", "女技师"):
+                    candidates = [t for t in candidates if t.get("gender") == "女"]
+
+            if preference and preference != "无":
+                strengths = [t.get("strength", "") for t in candidates]
+                indices = find_best_match_indices(preference, strengths)
+                candidates = [candidates[i] for i in indices if i < len(candidates)]
+
+            # 找第一个可用的技师（避免重复推荐同一技师）
+            for tech in candidates:
+                if tech["id"] in seen_tech_ids:
+                    continue
+                if appointment_service.is_technician_available(
+                    tech["id"], candidate_start, candidate_end
+                ):
+                    seen_tech_ids.add(tech["id"])
+                    results.append({
+                        "technician": tech,
+                        "fallback_start": candidate_start,
+                        "fallback_end": candidate_end,
+                        "offset_min": offset,
+                    })
+                    if yield_func:
+                        yield_func(
+                            f"[THOUGHT][预约机器人] fallback 找到 {tech['name']} 在 "
+                            f"{candidate_start.strftime('%H:%M')} 有空\n"
+                        )
+                    break  # 每个 offset 只取第一个可用技师
+
+        return results
+
     def _pick_with_reflection(self, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
         """在可用候选列表里按反思权重 + 原顺序选 1 个。
 
